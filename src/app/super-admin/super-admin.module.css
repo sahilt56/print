@@ -1,0 +1,17 @@
+.page { max-width: 1000px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 2rem; }
+.header h1 { margin: 0; color: var(--primary); }
+.header p { margin: .4rem 0 0; color: var(--muted); }
+.card { margin-bottom: 1.25rem; }
+.card h2 { margin-top: 0; font-size: 1.15rem; }
+.form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; align-items: end; }
+.form label { display: grid; gap: .4rem; font-size: .9rem; font-weight: 700; }
+.form input { width: 100%; border: 1px solid var(--border); border-radius: .5rem; padding: .7rem; background: var(--background); color: var(--foreground); }
+.error { color: var(--danger); margin: 1rem 0 0; }
+.credentials { display: grid; gap: .35rem; margin-top: 1rem; padding: 1rem; border-radius: .5rem; background: #ecfdf5; color: #14532d; }
+.credentials small { margin-top: .35rem; }
+.tableWrap { overflow-x: auto; }
+.tableWrap table { width: 100%; border-collapse: collapse; }
+.tableWrap th, .tableWrap td { padding: .75rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tableWrap th { color: var(--muted); font-size: .8rem; }
+@media (max-width: 700px) { .header { align-items: flex-start; flex-direction: column; } .form { grid-template-columns: 1fr; } }

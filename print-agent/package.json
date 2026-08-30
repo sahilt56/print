@@ -1,0 +1,27 @@
+{
+  "name": "print-agent",
+  "version": "1.0.0",
+  "description": "Local Print Agent for QR Print Cafe",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "build": "pkg index.js --targets node18-win-x64 --output dist/QrPrintAgent.exe && copy /Y node_modules\\pdf-to-printer\\dist\\SumatraPDF-3.4.6-32.exe dist\\SumatraPDF-3.4.6-32.exe",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.20.0",
+    "pdf-to-printer": "^5.8.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "assets": [],
+    "targets": [
+      "node18-win-x64"
+    ]
+  }
+}

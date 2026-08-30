@@ -1,0 +1,106 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.successIcon {
+  width: 80px;
+  height: 80px;
+  background-color: var(--success);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.4);
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--foreground);
+  margin-bottom: 2rem;
+}
+
+.detailsCard {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 2rem;
+}
+
+.jobNoRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.jobNo {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--primary);
+  background-color: var(--background);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  letter-spacing: 0.05em;
+}
+
+.divider {
+  height: 1px;
+  background-color: var(--border);
+  margin: 1rem 0;
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+}
+
+.label {
+  color: var(--muted);
+}
+
+.value {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.instruction {
+  font-size: 1.125rem;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 80%;
+}
+
+.homeButton {
+  width: 100%;
+  max-width: 420px;
+  min-height: 52px;
+  margin-top: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  background-color: var(--primary);
+  color: white;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.homeButton:hover {
+  background-color: var(--primary-hover);
+}
+
+.homeButton:active {
+  transform: scale(0.98);
+}

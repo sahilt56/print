@@ -1,0 +1,14 @@
+.header { margin: 1rem 0 1.25rem; text-align: center; }
+.title { color: var(--primary); font-size: 1.5rem; font-weight: 700; }
+.header p, .previewSection p { color: var(--muted); font-size: .9rem; margin-top: .35rem; }
+.editor { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; overflow: hidden; background: #111827; border-radius: var(--radius); touch-action: none; }
+.imageToCrop { display: block; max-width: 100%; max-height: 54vh; object-fit: contain; user-select: none; }
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+.documentArea { fill: rgba(34, 197, 94, .18); stroke: #22c55e; stroke-width: .8; vector-effect: non-scaling-stroke; }
+.handle { fill: white; stroke: #16a34a; stroke-width: 1.2; cursor: grab; vector-effect: non-scaling-stroke; }
+.previewSection { margin: 1.25rem 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: white; }
+.previewSection > div:first-child { padding: .9rem 1rem .7rem; }
+.previewSection h2 { font-size: 1rem; font-weight: 700; }
+.correctedPreview { display: block; width: 100%; max-height: 300px; object-fit: contain; background: #f8fafc; border-top: 1px solid var(--border); }
+.previewPlaceholder { height: 160px; display: grid; place-items: center; color: var(--muted); border-top: 1px solid var(--border); }
+.actionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; padding-bottom: 2rem; }
