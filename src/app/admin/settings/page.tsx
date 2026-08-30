@@ -7,34 +7,85 @@ import { Card } from '@/components/ui/Card';
 import styles from './page.module.css';
 import { SettingsForm } from './SettingsForm';
 import { DownloadConfigButton } from './DownloadConfigButton';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import Cafe from '@/models/Cafe';
+import mongoose from 'mongoose';
 
 export default async function SettingsPage() {
   const session = await getServerSession(authOptions);
 
-  if (!session) {
+  if (!session || !session.user) {
     redirect('/login');
   }
 
-  const cafeId = (session.user as any)?.cafeId;
+  await dbConnect();
 
-  const cafe = await prisma.cafe.findUnique({
-    where: { qrCode: cafeId },
-  });
+  const userObj = session.user as any;
+  const cafeId = userObj?.cafeId || userObj?.qrCode;
+  const userId = userObj?.id;
+  const loginId = userObj?.loginId || userObj?.email;
+
+  const isObjectId = mongoose.Types.ObjectId.isValid(userId);
+
+  // Dynamic Lookup: Search Mongo DB using cafeId/qrCode, MongoDB _id, or loginId
+  const cafe = await Cafe.findOne({
+    $or: [
+      ...(cafeId ? [{ qrCode: cafeId }] : []),
+      ...(isObjectId ? [{ _id: userId }] : []),
+      ...(loginId ? [{ loginId: loginId }] : []),
+    ],
+  }).lean();
 
   if (!cafe) {
-    return <div>Cafe not found.</div>;
+    return (
+      <Layout>
+        <div style={{ padding: '3rem 1rem', textAlign: 'center' }}>
+          <h2>Cafe not found.</h2>
+          <p style={{ marginTop: '0.5rem', color: '#666' }}>
+            Please log out and log back in to refresh your admin session.
+          </p>
+          <a
+            href="/login"
+            style={{
+              display: 'inline-block',
+              marginTop: '1rem',
+              padding: '0.5rem 1rem',
+              background: '#2563eb',
+              color: '#fff',
+              borderRadius: '6px',
+              textDecoration: 'none',
+            }}
+          >
+            Go to Login
+          </a>
+        </div>
+      </Layout>
+    );
   }
 
-  // Build customer URL
+  // Build customer URL dynamically
   const headersList = await headers();
   const host = headersList.get('host') || 'localhost:3000';
   const protocol = host.includes('localhost') ? 'http' : 'https';
-  const customerUrl = `${protocol}://${host}/${cafe.qrCode}`;
+  // Fallback link prioritizing qrCode or loginId
+  const customerUrl = `${protocol}://${host}/${cafe.qrCode || cafe.loginId}`;
 
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(customerUrl)}`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(
+    customerUrl
+  )}`;
 
-  const pricingConfig = JSON.parse(cafe.pricingConfig || '{"bw": 2, "color": 10}');
+  // Safe pricing configuration parsing
+  let pricingConfig = { bw: 2, color: 10 };
+  if (cafe.pricingConfig) {
+    try {
+      pricingConfig =
+        typeof cafe.pricingConfig === 'string'
+          ? JSON.parse(cafe.pricingConfig)
+          : cafe.pricingConfig;
+    } catch (e) {
+      /* fallback default pricing */
+    }
+  }
 
   return (
     <Layout>
@@ -59,7 +110,9 @@ export default async function SettingsPage() {
               height={220}
               className={styles.qrImage}
             />
-            <p className={styles.qrCafeId}>Cafe ID: <strong>{cafe.qrCode}</strong></p>
+            <p className={styles.qrCafeId}>
+              Cafe ID: <strong>{cafe.qrCode}</strong>
+            </p>
           </div>
           <div className={styles.qrInfo}>
             <p className={styles.qrUrl}>{customerUrl}</p>
@@ -87,8 +140,8 @@ export default async function SettingsPage() {
         <p className={styles.description}>
           Upload your cafe logo and set per-page printing prices.
         </p>
-        <SettingsForm 
-          initialBw={pricingConfig.bw} 
+        <SettingsForm
+          initialBw={pricingConfig.bw}
           initialColor={pricingConfig.color}
           initialLogoUrl={(cafe as any).logoUrl || null}
         />
@@ -98,13 +151,17 @@ export default async function SettingsPage() {
       <Card className={styles.card}>
         <h2 className={styles.sectionTitle}>Print Agent Setup</h2>
         <p className={styles.description}>
-          Download the Print Agent to connect your cafe computer to the cloud.
-          Place the <code>config.json</code> in the same folder as the agent and run it.
+          Download the Print Agent to connect your cafe computer to the cloud. Place the{' '}
+          <code>config.json</code> in the same folder as the agent and run it.
         </p>
         <ol className={styles.setupSteps}>
-          <li>Download the <strong>QrPrintAgent.exe</strong> and <strong>config.json</strong></li>
+          <li>
+            Download the <strong>QrPrintAgent.exe</strong> and <strong>config.json</strong>
+          </li>
           <li>Place both files in the same folder on your cafe computer</li>
-          <li>Double-click <strong>QrPrintAgent.exe</strong> to start it</li>
+          <li>
+            Double-click <strong>QrPrintAgent.exe</strong> to start it
+          </li>
           <li>Keep it running in the background while your cafe is open</li>
         </ol>
         <div className={styles.downloadButtons}>
@@ -114,7 +171,7 @@ export default async function SettingsPage() {
 
       {/* ── Agent Key Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}> Agent Key</h2>
+        <h2 className={styles.sectionTitle}>🔑 Agent Key</h2>
         <p className={styles.description}>
           This is the secret key used by your Local Print Agent. Do not share this with anyone.
         </p>
@@ -122,9 +179,11 @@ export default async function SettingsPage() {
           <code>{cafe.agentSecretKey || 'No key generated'}</code>
         </div>
       </Card>
-      
+
       <div className={styles.footer}>
-        <a href="/admin" className={styles.backLink}>&larr; Back to Dashboard</a>
+        <a href="/admin" className={styles.backLink}>
+          &larr; Back to Dashboard
+        </a>
       </div>
     </Layout>
   );

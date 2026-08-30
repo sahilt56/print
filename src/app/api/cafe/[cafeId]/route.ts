@@ -1,31 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import Cafe from '@/models/Cafe';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ cafeId: string }> }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ cafeId: string }> }
+) {
   try {
-    const { cafeId } = await params;
-    
-    const cafe = await prisma.cafe.findUnique({
-      where: { qrCode: cafeId },
-      select: {
-        name: true,
-        logoUrl: true, // <-- Add this field
-        pricingConfig: true
-      }
-    });
+    await dbConnect();
+    const resolvedParams = await params;
+    const cafeId = resolvedParams?.cafeId ? String(resolvedParams.cafeId).trim() : '';
+
+    if (!cafeId) {
+      return NextResponse.json({ error: 'Invalid Cafe Identifier' }, { status: 400 });
+    }
+
+    const isObjectId = mongoose.Types.ObjectId.isValid(cafeId);
+
+    // .lean() added to guarantee plain JSON output including logoUrl
+    const cafe = await Cafe.findOne({
+      $or: [
+        { qrCode: cafeId },
+        { loginId: cafeId.toLowerCase() },
+        ...(isObjectId ? [{ _id: cafeId }] : []),
+      ],
+    }).lean();
 
     if (!cafe) {
       return NextResponse.json({ error: 'Cafe not found' }, { status: 404 });
     }
 
+    // Safe Pricing Config Parsing
+    let pricing = { bw: 2, color: 10 };
+    if (cafe.pricingConfig) {
+      try {
+        pricing = typeof cafe.pricingConfig === 'string'
+          ? JSON.parse(cafe.pricingConfig)
+          : cafe.pricingConfig;
+      } catch (e) {
+        /* fallback pricing */
+      }
+    }
+
     return NextResponse.json({
       name: cafe.name,
-      logoUrl: cafe.logoUrl || null, // <-- Return logoUrl to frontend
-      pricing: JSON.parse(cafe.pricingConfig || '{"bw":2,"color":10}')
+      qrCode: cafe.qrCode,
+      loginId: cafe.loginId,
+      logoUrl: (cafe as any).logoUrl || null, // Guaranteed Base64/URL payload
+      pricing,
     });
-
-  } catch (error) {
+  } catch (error: any) {
     console.error('Fetch Cafe Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

@@ -1,34 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-// Absolute path path alias (@/) or correct relative path:
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import Cafe from '@/models/Cafe';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) {
+    if (!session || !session.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const cafeId = (session.user as any)?.cafeId;
+    await dbConnect();
+
+    const userObj = session.user as any;
+    const cafeId = userObj?.cafeId || userObj?.qrCode;
+    const userId = userObj?.id;
+    const loginId = userObj?.loginId || userObj?.email;
+
     const body = await request.json();
-    
     const { bw, color, logoUrl } = body;
 
-    const pricingConfig = JSON.stringify({ bw, color });
+    const isObjectId = mongoose.Types.ObjectId.isValid(userId);
 
-    await prisma.cafe.update({
-      where: { qrCode: cafeId },
-      data: {
-        pricingConfig,
-        logoUrl: logoUrl || null,
-      },
+    // Dynamic search: Match cafe by qrCode, _id, or loginId
+    const cafe = await Cafe.findOne({
+      $or: [
+        ...(cafeId ? [{ qrCode: cafeId }] : []),
+        ...(isObjectId ? [{ _id: userId }] : []),
+        ...(loginId ? [{ loginId: loginId }] : []),
+      ],
     });
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
+    if (!cafe) {
+      return NextResponse.json({ error: 'Cafe not found in database' }, { status: 404 });
+    }
+
+    // Save pricing and logo
+    cafe.pricingConfig = JSON.stringify({
+      bw: Number(bw) || 2,
+      color: Number(color) || 10,
+    });
+
+    if (logoUrl !== undefined) {
+      cafe.logoUrl = logoUrl;
+    }
+
+    await cafe.save();
+
+    return NextResponse.json({ success: true, message: 'Settings updated successfully' });
+  } catch (error: any) {
     console.error('Settings Update Error:', error);
-    return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Failed to update settings' },
+      { status: 500 }
+    );
   }
 }

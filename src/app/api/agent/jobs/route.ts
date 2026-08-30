@@ -1,77 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import Cafe from '@/models/Cafe';
+import PrintJob from '@/models/PrintJob';
 
 export async function GET(request: NextRequest) {
   try {
+    await dbConnect();
+
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized: Missing token' }, { status: 401 });
     }
-
-    const token = authHeader.split(' ')[1];
+    const token = authHeader.split(' ')[1].trim();
 
     const { searchParams } = new URL(request.url);
     const cafeId = searchParams.get('cafeId');
 
     if (!cafeId) {
-      return NextResponse.json({ error: 'Missing cafeId parameter' }, { status: 400 });
+      return NextResponse.json({ error: 'Cafe ID required' }, { status: 400 });
     }
 
-    // Authenticate the specific Cafe's Agent Key
-    const cafe = await prisma.cafe.findUnique({
-      where: { qrCode: cafeId },
-      select: { agentSecretKey: true }
-    });
+    const cafe = await Cafe.findOne({
+      $or: [{ qrCode: cafeId }, { loginId: cafeId.toLowerCase() }],
+    }).lean();
 
-    if (!cafe || cafe.agentSecretKey !== token) {
-      return NextResponse.json({ error: 'Unauthorized Agent Key' }, { status: 401 });
+    const dbToken = String((cafe as any)?.agentSecretKey || '').trim();
+    if (!cafe || dbToken !== token) {
+      return NextResponse.json({ error: 'Forbidden: Invalid Agent Secret Key' }, { status: 403 });
     }
 
-    // 2. Fetch the oldest pending/paid job for this cafe
-    
-    const job = await prisma.printJob.findFirst({
-      where: {
-        cafe: {
-          qrCode: cafeId
-        },
-        paymentStatus: 'paid',
-        printStatus: 'pending' // Only jobs not yet picked up by the printer
-      },
-      orderBy: {
-        createdAt: 'asc' // FIFO
-      }
-    });
+    const possibleCafeIds = [cafe.qrCode, cafe.loginId, cafe._id.toString()].filter(Boolean);
+
+    // RULE: Agent will ONLY pick up jobs where paymentStatus is 'paid' and printStatus is queued/pending
+    const job = await PrintJob.findOne({
+      cafeId: { $in: possibleCafeIds },
+      paymentStatus: 'paid', // <-- Jab tak admin 'Mark Paid' nahi karega, print nahi hoga!
+      printStatus: { $in: ['queued', 'pending'] },
+    }).sort({ createdAt: 1 });
 
     if (!job) {
       return NextResponse.json({ job: null });
     }
 
-    // 3. Mark it as 'printing' so another polling request doesn't grab it
-    const claimedJob = await prisma.printJob.updateMany({
-      where: { id: job.id, paymentStatus: 'paid', printStatus: 'pending' },
-      data: { printStatus: 'printing' },
-    });
+    // Mark status as 'printing'
+    job.printStatus = 'printing';
+    await job.save();
 
-    if (claimedJob.count !== 1) {
-      return NextResponse.json({ job: null });
-    }
+    const host = request.headers.get('host') || 'localhost:3000';
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    const downloadUrl = (job as any).fileUrl?.startsWith('http')
+      ? (job as any).fileUrl
+      : `${protocol}://${host}${(job as any).fileUrl}`;
 
-    const updatedJob = await prisma.printJob.findUniqueOrThrow({ where: { id: job.id } });
-
-    // 4. Return the job details including the file URL for the agent to download
-    // Ensure fileUrl is an absolute URL if the agent is remote. 
-    // Since this is MVP running on localhost, we can construct the full URL.
-    const baseUrl = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
-    
-    return NextResponse.json({ 
+    return NextResponse.json({
       job: {
-        ...updatedJob,
-        downloadUrl: `${baseUrl}/api/files/${updatedJob.id}`
-      }
+        id: job._id.toString(),
+        jobNumber: job.jobNumber,
+        downloadUrl,
+        copies: job.copies || 1,
+        colorMode: job.isColor ? 'color' : 'bw',
+        paperSize: 'A4',
+        layout: (job as any).layout || null,
+      },
     });
 
-  } catch (error) {
-    console.error('Agent GET Jobs Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Agent Jobs Fetch Error:', error);
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

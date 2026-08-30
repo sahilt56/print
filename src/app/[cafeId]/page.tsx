@@ -69,6 +69,18 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
       {/* Main Content Centered */}
       <div className={styles.contentWrapper}>
         <div className={styles.header}>
+          {/* Displays Logo on top of Card if uploaded */}
+          {cafeData?.logoUrl && (
+            <div style={{ marginBottom: '12px', textAlign: 'center' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img 
+                src={cafeData.logoUrl} 
+                alt="Cafe Logo" 
+                style={{ maxHeight: '70px', maxWidth: '180px', objectFit: 'contain', borderRadius: '8px' }} 
+              />
+            </div>
+          )}
+
           {isLoading ? (
             <h1 className={styles.titleLoader}>Loading...</h1>
           ) : (
@@ -111,7 +123,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               fullWidth
               onClick={() => document.getElementById('take-photo')?.click()}
             >
-             Take Photo
+              Take Photo
             </Button>
           </div>
         </div>

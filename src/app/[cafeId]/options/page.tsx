@@ -17,13 +17,21 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
   const [error, setError] = useState('');
   const [prices, setPrices] = useState({ bw: 2, color: 10 });
 
+  // Safe pricing fetch with fallback check
   useEffect(() => {
+    if (!cafeId) return;
     fetch(`/api/cafe/${cafeId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.pricing) setPrices(data.pricing);
+      .then(res => {
+        if (!res.ok) throw new Error('Cafe route not found, using defaults');
+        return res.json();
       })
-      .catch(console.error);
+      .then(data => {
+        if (data && data.pricing) setPrices(data.pricing);
+      })
+      .catch((err) => {
+        console.warn('Pricing fetch fallback:', err.message);
+        // Default prices (₹2 B&W, ₹10 Color) remain active
+      });
   }, [cafeId]);
 
   useEffect(() => {
@@ -43,7 +51,7 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
   const totalAmount = pageCount * copies * prices[colorMode as keyof typeof prices];
 
   const uploadAndCreateJob = async () => {
-    // Upload all items in layout
+    // 1. Upload all items in layout to /api/upload
     const uploadedItems = await Promise.all(
       items.map(async (item) => {
         const formData = new FormData();
@@ -54,12 +62,16 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
           body: formData,
         });
         
-        if (!uploadRes.ok) throw new Error('File upload failed');
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'File upload failed');
+        }
+        
         const { fileUrl } = await uploadRes.json();
 
         return {
           id: item.id,
-          fileUrl,
+          fileUrl, // Absolute path (/uploads/...) returned from server
           xPercent: (item.pos.x / 380) * 100, // Normalized A4 Base
           yPercent: (item.pos.y / 537.4) * 100,
           widthPercent: (item.size.width / 380) * 100,
@@ -68,7 +80,7 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
       })
     );
 
-    // 2. Submit Job with layout array
+    // 2. Submit Job with layout array to /api/jobs
     const jobRes = await fetch('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -86,7 +98,11 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
       }),
     });
 
-    if (!jobRes.ok) throw new Error('Job submission failed');
+    if (!jobRes.ok) {
+      const jobErrData = await jobRes.json().catch(() => ({}));
+      throw new Error(jobErrData.error || 'Job submission failed');
+    }
+    
     return await jobRes.json();
   };
 
@@ -94,9 +110,16 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
     setIsSubmitting(true);
     setError('');
     try {
-      const { jobId } = await uploadAndCreateJob();
+      const resData = await uploadAndCreateJob();
+      const jobId = resData.jobId || resData.id;
+      
+      if (!jobId) {
+        throw new Error('Invalid Job ID received from server');
+      }
+
       router.push(`/${cafeId}/status/${jobId}`);
     } catch (err) {
+      console.error('Submit Error:', err);
       setError(err instanceof Error ? err.message : 'Something went wrong');
       setIsSubmitting(false);
     }

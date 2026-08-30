@@ -1,92 +1,96 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import Cafe from '@/models/Cafe';
+import PrintJob from '@/models/PrintJob';
+import mongoose from 'mongoose';
 
-const DEFAULT_PRICES = {
-  bw: 2,
-  color: 10,
-};
-
-const UPLOAD_URL = /^\/uploads\/[a-f0-9]{32}\.(pdf|jpe?g|png)$/;
-const ALLOWED_FILE_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+const DEFAULT_PRICES = { bw: 2, color: 10 };
 
 export async function POST(request: NextRequest) {
   try {
+    await dbConnect();
+
     const body = await request.json();
-    const { 
-      cafeId, fileUrl, fileName, fileType, 
-      pageCount, selectedPages, colorMode, 
-      paperSize, copies, paymentMethod,
-      layout 
+    const {
+      cafeId, fileUrl, fileName, fileType,
+      pageCount, selectedPages, colorMode,
+      paperSize, copies, paymentMethod, layout
     } = body;
 
-    if (typeof cafeId !== 'string' || typeof fileName !== 'string') {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    if (!cafeId) {
+      return NextResponse.json({ error: 'Cafe ID is required' }, { status: 400 });
     }
 
-    // Extract primary fileUrl if fileUrl is empty but layout array is present
-    const primaryFileUrl = fileUrl || (Array.isArray(layout) && layout.length > 0 ? layout[0].fileUrl : '');
+    const cleanCafeId = String(cafeId).trim();
+    const isObjectId = mongoose.Types.ObjectId.isValid(cleanCafeId);
 
-    if (!primaryFileUrl || !UPLOAD_URL.test(primaryFileUrl) || !ALLOWED_FILE_TYPES.has(fileType)) {
-      return NextResponse.json({ error: 'Invalid uploaded file' }, { status: 400 });
-    }
+    // Case-insensitive regex match for qrCode & loginId
+    const cafe = await Cafe.findOne({
+      $or: [
+        { qrCode: { $regex: new RegExp(`^${cleanCafeId}$`, 'i') } },
+        { loginId: { $regex: new RegExp(`^${cleanCafeId}$`, 'i') } },
+        ...(isObjectId ? [{ _id: cleanCafeId }] : []),
+      ],
+    });
 
-    if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 500 || !Number.isInteger(copies) || copies < 1 || copies > 100) {
-      return NextResponse.json({ error: 'Invalid page count or copy count' }, { status: 400 });
-    }
-
-    if (!['bw', 'color'].includes(colorMode) || paperSize !== 'A4' || paymentMethod !== 'cash') {
-      return NextResponse.json({ error: 'Invalid print options' }, { status: 400 });
-    }
-
-    if (typeof selectedPages !== 'string' || !/^(all|[\d,\-\s]+)$/.test(selectedPages) || fileName.length > 150) {
-      return NextResponse.json({ error: 'Invalid print job details' }, { status: 400 });
-    }
-
-    const cafe = await prisma.cafe.findUnique({ where: { qrCode: cafeId } });
     if (!cafe) {
-      return NextResponse.json({ error: 'Cafe not found' }, { status: 404 });
+      console.error(`[Job POST Fail] Cafe not found for: "${cleanCafeId}"`);
+      return NextResponse.json({ error: `Cafe not found for ID: ${cleanCafeId}` }, { status: 404 });
     }
 
+    // Pricing Calculation
     let prices = DEFAULT_PRICES;
     try {
-      const configured = JSON.parse(cafe.pricingConfig);
-      if (Number.isFinite(configured.bw) && configured.bw > 0 && Number.isFinite(configured.color) && configured.color > 0) {
-        prices = { bw: configured.bw, color: configured.color };
+      if (cafe.pricingConfig) {
+        const configured = typeof cafe.pricingConfig === 'string' 
+          ? JSON.parse(cafe.pricingConfig) 
+          : cafe.pricingConfig;
+        if (Number.isFinite(configured.bw) && Number.isFinite(configured.color)) {
+          prices = { bw: configured.bw, color: configured.color };
+        }
       }
     } catch {
-      return NextResponse.json({ error: 'Cafe pricing is invalid' }, { status: 500 });
+      /* fallback */
     }
 
     const pricePerPage = colorMode === 'color' ? prices.color : prices.bw;
-    const totalAmount = pageCount * copies * pricePerPage;
+    const finalPageCount = Number(pageCount) || 1;
+    const finalCopies = Number(copies) || 1;
+    const totalAmount = finalPageCount * finalCopies * pricePerPage;
     const jobNumber = `PRINT-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
-    const job = await prisma.printJob.create({
-      data: {
-        jobNumber,
-        cafeId: cafe.id,
-        fileUrl: primaryFileUrl,
-        fileName,
-        fileType,
-        layout: layout ? JSON.stringify(layout) : null, // Direct Json object/array save for multi-image
-        pageCount,
-        selectedPages,
-        colorMode,
-        paperSize,
-        copies,
-        pricePerPage,
-        totalAmount,
-        paymentMethod,
-        paymentStatus: 'pending',
-        printStatus: 'pending'
-      }
+    const hasLayout = Array.isArray(layout) && layout.length > 0;
+    const primaryFileUrl = fileUrl || (hasLayout ? layout[0].fileUrl : null);
+
+    // Save Job to MongoDB
+    const newJob = await PrintJob.create({
+      jobNumber,
+      cafeId: cafe._id.toString(),
+      fileUrl: primaryFileUrl,
+      fileName: fileName || 'Print Document',
+      fileType: fileType || 'image/png',
+      layout: hasLayout ? layout : [],
+      pageCount: finalPageCount,
+      selectedPages: selectedPages || 'all',
+      colorMode: colorMode === 'color' ? 'color' : 'bw',
+      paperSize: paperSize || 'A4',
+      copies: finalCopies,
+      pricePerPage,
+      totalAmount,
+      paymentMethod: paymentMethod || 'cash',
+      paymentStatus: 'pending',
+      printStatus: 'pending',
     });
 
-    return NextResponse.json({ jobId: job.id, jobNumber: job.jobNumber });
+    return NextResponse.json({
+      success: true,
+      jobId: newJob._id.toString(),
+      jobNumber: newJob.jobNumber,
+    });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Job Creation Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

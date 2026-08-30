@@ -2,16 +2,16 @@ export const dynamic = 'force-dynamic';
 
 import React from 'react';
 import Link from 'next/link';
-import type { PrintJob } from '@prisma/client';
 import { Layout } from '@/components/ui/Layout';
 import { Card } from '@/components/ui/Card';
 import styles from './page.module.css';
 import { markJobPaid, markJobComplete, cancelJob } from './actions';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../api/auth/[...nextauth]/route';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import Cafe from '@/models/Cafe';
+import PrintJob from '@/models/PrintJob';
 import { redirect } from 'next/navigation';
-
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Waiting',
@@ -29,7 +29,7 @@ const PAYMENT_LABELS: Record<string, string> = {
 export default async function AdminDashboard() {
   const session = await getServerSession(authOptions);
 
-  if (!session) {
+  if (!session || !session.user) {
     redirect('/login');
   }
 
@@ -37,17 +37,55 @@ export default async function AdminDashboard() {
     redirect('/super-admin');
   }
 
-  const cafeId = session.user.cafeId;
+  await dbConnect();
 
-  const jobs = await prisma.printJob.findMany({
-    where: {
-      cafe: {
-        qrCode: cafeId
-      }
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-  });
+  const userObj = session.user as any;
+  const cafeId = userObj.cafeId || userObj.qrCode;
+  const userId = userObj.id;
+  const loginId = userObj.loginId || userObj.email;
+
+  // Find cafe details in MongoDB
+  const cafe = await Cafe.findOne({
+    $or: [
+      ...(cafeId ? [{ qrCode: cafeId }] : []),
+      ...(loginId ? [{ loginId: loginId }] : []),
+    ],
+  }).lean();
+
+  if (!cafe) {
+    return (
+      <Layout>
+        <div style={{ padding: '3rem', textAlign: 'center' }}>
+          <h2>Cafe record not found. Please log out and log in again.</h2>
+        </div>
+      </Layout>
+    );
+  }
+
+  const possibleCafeIds = [cafe.qrCode, cafe.loginId, cafe._id.toString()].filter(Boolean);
+
+  // Fetch jobs using Mongoose matching any variant of cafeId
+  const rawJobs = await PrintJob.find({
+    cafeId: { $in: possibleCafeIds },
+  })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  const jobs = rawJobs.map((j: any) => ({
+    id: j._id.toString(),
+    jobNumber: j.jobNumber || 'PRINT-REQ',
+    fileName: j.fileName || 'Document',
+    fileUrl: j.fileUrl || '',
+    pageCount: j.totalPages || j.pageCount || 1,
+    copies: j.copies || 1,
+    colorMode: j.isColor ? 'color' : 'bw',
+    paperSize: j.paperSize || 'A4',
+    totalAmount: j.totalAmount || 0,
+    paymentStatus: j.paymentStatus || 'pending',
+    printStatus: j.printStatus || 'pending',
+    createdAt: j.createdAt || new Date(),
+  }));
 
   const pending = jobs.filter(j => j.printStatus === 'pending' && j.paymentStatus !== 'paid');
   const paid = jobs.filter(j => j.printStatus === 'pending' && j.paymentStatus === 'paid');
@@ -59,7 +97,7 @@ export default async function AdminDashboard() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <div>
           <h1 className={styles.title}>Admin Dashboard</h1>
-          <p className={styles.subtitle}>{session.user?.name}&apos;s Print Queue</p>
+          <p className={styles.subtitle}>{cafe.name}&apos;s Print Queue</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
           <Link href="/admin/settings" className={`${styles.btn} ${styles.btnPrimary}`}>⚙️ Settings</Link>
@@ -70,10 +108,10 @@ export default async function AdminDashboard() {
         </div>
       </div>
 
-      {/* New: Awaiting Payment */}
+      {/* Awaiting Payment */}
       {pending.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}> Awaiting Payment</h2>
+          <h2 className={styles.sectionTitle}>⏳ Awaiting Payment</h2>
           <div className={styles.jobList}>
             {pending.map(job => (
               <Card key={job.id} className={styles.jobCard}>
@@ -95,14 +133,14 @@ export default async function AdminDashboard() {
       {/* Ready to Print */}
       {paid.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}> Ready to Print</h2>
+          <h2 className={styles.sectionTitle}>🖨️ Ready to Print</h2>
           <div className={styles.jobList}>
             {paid.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.readyCard}`}>
                 <JobCard job={job} />
                 <div className={styles.actions}>
                   <form action={markJobComplete.bind(null, job.id)}>
-                    <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`}> Mark Printed</button>
+                    <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`}>🖨️ Mark Printed</button>
                   </form>
                   <form action={cancelJob.bind(null, job.id)}>
                     <button type="submit" className={`${styles.btn} ${styles.btnDanger}`}>✕ Cancel</button>
@@ -117,7 +155,7 @@ export default async function AdminDashboard() {
       {/* Printing */}
       {inProgress.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}> Printing...</h2>
+          <h2 className={styles.sectionTitle}>🔄 Printing...</h2>
           <div className={styles.jobList}>
             {inProgress.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.printingCard}`}>
@@ -133,10 +171,10 @@ export default async function AdminDashboard() {
         </section>
       )}
 
-      {/* Completed */}
+      {/* Completed / Recent History */}
       {done.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}> Recent History</h2>
+          <h2 className={styles.sectionTitle}>📜 Recent History</h2>
           <div className={styles.jobList}>
             {done.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.doneCard}`}>
@@ -157,7 +195,7 @@ export default async function AdminDashboard() {
   );
 }
 
-function JobCard({ job }: { job: PrintJob }) {
+function JobCard({ job }: { job: any }) {
   const timeAgo = new Date(job.createdAt).toLocaleString('en-IN', {
     hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short'
   });
@@ -178,13 +216,13 @@ function JobCard({ job }: { job: PrintJob }) {
 
       <div className={styles.jobDetails}>
         <span className={styles.detail}>
-           <a href={`/api/files/${job.id}`} target="_blank" rel="noreferrer" className={styles.link}>{job.fileName}</a>
+           <a href={job.fileUrl || `/api/files/${job.id}`} target="_blank" rel="noreferrer" className={styles.link}>{job.fileName}</a>
         </span>
         <span className={styles.detail}>
-           {job.copies} × {job.pageCount} page{job.pageCount !== 1 ? 's' : ''} &bull; {job.colorMode === 'bw' ? 'B&W' : 'Color'} &bull; {job.paperSize}
+           {job.copies} × {job.pageCount} page{job.pageCount !== 1 ? 's' : ''} &bull; {job.colorMode === 'color' ? 'Color' : 'B&W'} &bull; {job.paperSize}
         </span>
-        <span className={styles.detail}> ₹{job.totalAmount} cash</span>
-        <span className={styles.detail}> {timeAgo}</span>
+        <span className={styles.detail}>₹{job.totalAmount} cash</span>
+        <span className={styles.detail}>{timeAgo}</span>
       </div>
     </div>
   );

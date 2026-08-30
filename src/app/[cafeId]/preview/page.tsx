@@ -29,6 +29,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
 
   const [a4Width, setA4Width] = useState<number>(0);
   const [isRotating, setIsRotating] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Measure A4 width dynamically
   useEffect(() => {
@@ -219,7 +220,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
       const newUrl = URL.createObjectURL(newFile);
       const newId = `item-${Date.now()}`;
       
-      // Calculate offset so images don't perfectly stack
       const offset = items.length * 25;
       const newItem: CanvasItemState = {
         id: newId,
@@ -250,20 +250,65 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     }
   };
 
-  const handleNextStep = () => {
-    // Generate Percentage Payload relative to exact A4 Canvas Dimensions
-    const layoutPayload = items.map((item) => ({
-      id: item.id,
-      fileName: item.file.name,
-      xPercent: (item.pos.x / currentCanvasWidth) * 100,
-      yPercent: (item.pos.y / currentCanvasHeight) * 100,
-      widthPercent: (item.size.width / currentCanvasWidth) * 100,
-      heightPercent: (item.size.height / currentCanvasHeight) * 100,
-      fileUrl: item.url
-    }));
+  // Helper to Upload a single file to server (/api/upload)
+  const uploadFileToServer = async (fileToUpload: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', fileToUpload);
 
-    console.log('Final Job Multi-Image Payload:', layoutPayload);
-    router.push(`/${cafeId}/options`);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to upload ${fileToUpload.name}`);
+    }
+
+    const data = await res.json();
+    return data.fileUrl; // Return uploaded server URL (e.g., /uploads/abcd.png)
+  };
+
+  const handleNextStep = async () => {
+    setIsUploading(true);
+    try {
+      // Step 1: Upload all files in canvas to server
+      const updatedItems = await Promise.all(
+        items.map(async (item) => {
+          // If URL is local blob, upload it to server
+          let serverUrl = item.url;
+          if (item.url.startsWith('blob:') || !item.url.startsWith('/uploads/')) {
+            serverUrl = await uploadFileToServer(item.file);
+          }
+          return {
+            ...item,
+            url: serverUrl,
+          };
+        })
+      );
+
+      // Step 2: Update context items with server URLs
+      setItems(updatedItems);
+
+      // Step 3: Calculate percentage layout payload
+      const layoutPayload = updatedItems.map((item) => ({
+        id: item.id,
+        fileName: item.file.name,
+        xPercent: (item.pos.x / currentCanvasWidth) * 100,
+        yPercent: (item.pos.y / currentCanvasHeight) * 100,
+        widthPercent: (item.size.width / currentCanvasWidth) * 100,
+        heightPercent: (item.size.height / currentCanvasHeight) * 100,
+        fileUrl: item.url,
+      }));
+
+      console.log('Final Server-Uploaded Layout Payload:', layoutPayload);
+      router.push(`/${cafeId}/options`);
+    } catch (err: any) {
+      console.error('Upload Error:', err);
+      alert(err.message || 'File upload failed. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   if (!file) return null;
@@ -361,26 +406,26 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
       {/* Action Controls */}
       <div className={styles.actionGrid}>
         {selectedItem?.isImage && (
-          <Button variant="secondary" onClick={handleScanCrop}>
+          <Button variant="secondary" onClick={handleScanCrop} disabled={isUploading}>
              Scan &amp; Crop
           </Button>
         )}
 
         {selectedItem?.isImage && (
-          <Button variant="secondary" onClick={rotateSelectedImage} disabled={isRotating}>
+          <Button variant="secondary" onClick={rotateSelectedImage} disabled={isRotating || isUploading}>
              {isRotating ? 'Rotating…' : 'Rotate'}
           </Button>
         )}
 
-        <Button variant="secondary" onClick={() => replaceInputRef.current?.click()}>
+        <Button variant="secondary" onClick={() => replaceInputRef.current?.click()} disabled={isUploading}>
            Use Another Image
         </Button>
 
-        <Button variant="secondary" onClick={() => addImageInputRef.current?.click()}>
+        <Button variant="secondary" onClick={() => addImageInputRef.current?.click()} disabled={isUploading}>
            Add Another Image
         </Button>
 
-        <Button variant="danger" onClick={handleDelete}>
+        <Button variant="danger" onClick={handleDelete} disabled={isUploading}>
           Delete
         </Button>
       </div>
@@ -406,13 +451,14 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
         fullWidth
         onClick={() => router.push(`/${cafeId}`)}
         className={styles.backButton}
+        disabled={isUploading}
       >
         ← Back
       </Button>
 
       <div className={styles.footer}>
-        <Button variant="primary" size="large" fullWidth onClick={handleNextStep}>
-          Next Step &rarr;
+        <Button variant="primary" size="large" fullWidth onClick={handleNextStep} disabled={isUploading}>
+          {isUploading ? 'Uploading Assets...' : 'Next Step →'}
         </Button>
       </div>
     </Layout>

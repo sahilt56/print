@@ -1,16 +1,17 @@
-import NextAuth, { NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcrypt";
+import NextAuth, { NextAuthOptions } from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import Cafe from '@/models/Cafe';
 
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
-      name: "Credentials",
+      name: 'Credentials',
       credentials: {
-        username: { label: "User ID", type: "text", placeholder: "cafe-owner-id" },
-        password: { label: "Password", type: "password" }
+        username: { label: 'User ID', type: 'text', placeholder: 'cafe-owner-id' },
+        password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) {
@@ -21,66 +22,79 @@ export const authOptions: NextAuthOptions = {
         const superAdminId = process.env.SUPER_ADMIN_USER_ID?.trim().toLowerCase();
         const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
 
+        // 1. Super Admin Authentication Check
         if (superAdminId && superAdminPassword && username === superAdminId) {
           const received = Buffer.from(credentials.password, 'utf8');
           const expected = Buffer.from(superAdminPassword, 'utf8');
-          if (received.length === expected.length && crypto.timingSafeEqual(received, expected)) {
-            return { id: 'super-admin', name: 'System Admin', cafeId: '', role: 'super-admin' };
+
+          if (
+            received.length === expected.length &&
+            crypto.timingSafeEqual(received, expected)
+          ) {
+            return {
+              id: 'super-admin-id',
+              name: 'System Admin',
+              cafeId: '',
+              role: 'super-admin',
+            };
           }
           return null;
         }
 
-        const cafe = await prisma.cafe.findUnique({
-          where: { loginId: username }
+        // 2. Connect MongoDB & Fetch Cafe Admin
+        await dbConnect();
+
+        const cafe = await Cafe.findOne({
+          $or: [
+            { loginId: username },
+            { qrCode: username },
+          ],
         });
 
-        if (!cafe) {
-          return null;
-        }
-        if (!cafe.password) {
+        if (!cafe || !cafe.password) {
           return null;
         }
 
+        // 3. Password Verification via bcryptjs
         const isPasswordValid = await bcrypt.compare(credentials.password, cafe.password);
         if (!isPasswordValid) {
           return null;
         }
 
+        // Return Authenticated User Object
         return {
-          id: cafe.id,
+          id: cafe._id.toString(),
+          name: cafe.ownerName || cafe.name,
           email: cafe.loginId,
-          name: cafe.ownerName,
-          cafeId: cafe.qrCode, // passing qrCode as the cafe identifier
+          cafeId: cafe.qrCode,
           role: 'cafe',
         };
-      }
-    })
+      },
+    }),
   ],
   session: {
-    strategy: "jwt"
+    strategy: 'jwt',
   },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        token.cafeId = user.cafeId;
-        token.role = user.role;
+        token.cafeId = (user as any).cafeId;
+        token.role = (user as any).role;
       }
       return token;
     },
     async session({ session, token }) {
-      if (token) {
-        if (session.user && token.id && token.cafeId !== undefined && token.role) {
-          session.user.id = token.id;
-          session.user.cafeId = token.cafeId;
-          session.user.role = token.role;
-        }
+      if (token && session.user) {
+        (session.user as any).id = token.id;
+        (session.user as any).cafeId = token.cafeId;
+        (session.user as any).role = token.role;
       }
       return session;
-    }
+    },
   },
   pages: {
-    signIn: "/login",
+    signIn: '/login',
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
