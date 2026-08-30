@@ -68,10 +68,10 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
         url: filePreviewUrl,
         isImage: file.type.startsWith('image/'),
         isPdf: file.type === 'application/pdf',
-        // Centered position
-        pos: { x: currentCanvasWidth / 2, y: currentCanvasHeight / 3 },
-        // Proportional initial card/document dimensions
-        size: { width: 220, height: 145 },
+        // Top-left initial relative position
+        pos: { x: 20, y: 20 },
+        // Proportional initial card dimensions
+        size: { width: 150, height: 100 },
       };
       setItems([initialItem]);
       setActiveItemId(initialId);
@@ -116,7 +116,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     if (!interactionMode.current || !activeItemIdRef.current || !a4Ref.current) return;
     const dx = e.clientX - initialPointer.current.mx;
     const dy = e.clientY - initialPointer.current.my;
-    const { width, height } = a4Ref.current.getBoundingClientRect();
 
     setItems((prev) =>
       prev.map((item) => {
@@ -126,13 +125,13 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
           return {
             ...item,
             pos: {
-              x: Math.max(0, Math.min(width, initialPointer.current.px + dx)),
-              y: Math.max(0, Math.min(height, initialPointer.current.py + dy)),
+              x: Math.max(0, Math.min(currentCanvasWidth - item.size.width, initialPointer.current.px + dx)),
+              y: Math.max(0, Math.min(currentCanvasHeight - item.size.height, initialPointer.current.py + dy)),
             },
           };
         } else if (interactionMode.current === 'resize') {
-          const newW = Math.max(60, initialPointer.current.w + dx);
-          const newH = Math.max(40, initialPointer.current.h + dy);
+          const newW = Math.max(50, initialPointer.current.w + dx);
+          const newH = Math.max(30, initialPointer.current.h + dy);
           return {
             ...item,
             size: { width: newW, height: newH },
@@ -219,14 +218,20 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     if (newFile) {
       const newUrl = URL.createObjectURL(newFile);
       const newId = `item-${Date.now()}`;
+      
+      // Calculate offset so images don't perfectly stack
+      const offset = items.length * 25;
       const newItem: CanvasItemState = {
         id: newId,
         file: newFile,
         url: newUrl,
         isImage: newFile.type.startsWith('image/'),
         isPdf: newFile.type === 'application/pdf',
-        pos: { x: currentCanvasWidth / 2, y: Math.min(currentCanvasHeight - 60, currentCanvasHeight / 2 + items.length * 30) },
-        size: { width: 220, height: 145 },
+        pos: { 
+          x: Math.min(currentCanvasWidth - 160, 20 + offset), 
+          y: Math.min(currentCanvasHeight - 110, 20 + offset) 
+        },
+        size: { width: 150, height: 100 },
       };
       setItems((prev) => [...prev, newItem]);
       setActiveItemId(newId);
@@ -246,6 +251,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
   };
 
   const handleNextStep = () => {
+    // Generate Percentage Payload relative to exact A4 Canvas Dimensions
     const layoutPayload = items.map((item) => ({
       id: item.id,
       fileName: item.file.name,
@@ -253,9 +259,10 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
       yPercent: (item.pos.y / currentCanvasHeight) * 100,
       widthPercent: (item.size.width / currentCanvasWidth) * 100,
       heightPercent: (item.size.height / currentCanvasHeight) * 100,
+      fileUrl: item.url
     }));
 
-    console.log('Final Admin Job Layout Payload:', layoutPayload);
+    console.log('Final Job Multi-Image Payload:', layoutPayload);
     router.push(`/${cafeId}/options`);
   };
 
@@ -292,10 +299,10 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
                     isSelected ? styles.selectedDraggable : ''
                   }`}
                   style={{
-                    left: item.pos.x,
-                    top: item.pos.y,
-                    width: item.size.width,
-                    height: item.size.height,
+                    left: `${(item.pos.x / currentCanvasWidth) * 100}%`,
+                    top: `${(item.pos.y / currentCanvasHeight) * 100}%`,
+                    width: `${(item.size.width / currentCanvasWidth) * 100}%`,
+                    height: `${(item.size.height / currentCanvasHeight) * 100}%`,
                   }}
                   onPointerDown={(e) => handlePointerDown(item.id, 'drag', e)}
                 >

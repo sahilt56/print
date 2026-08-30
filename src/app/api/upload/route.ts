@@ -44,9 +44,8 @@ export async function POST(request: NextRequest) {
     const hash = crypto.randomBytes(16).toString('hex');
     const safeFileName = `${hash}${extension}`;
     
-    // Keep customer documents outside the public web directory. They are served
-    // only to the owning cafe or its authenticated print agent.
-    const uploadDir = join(process.cwd(), 'uploads');
+    // Save inside public/uploads so Next.js static server can serve the file
+    const uploadDir = join(process.cwd(), 'public', 'uploads');
     const filePath = join(uploadDir, safeFileName);
     await mkdir(uploadDir, { recursive: true });
     await writeFile(filePath, buffer);

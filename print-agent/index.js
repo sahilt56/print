@@ -3,18 +3,16 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { print } = require('pdf-to-printer');
+const { PDFDocument } = require('pdf-lib');
 
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.jpg', '.jpeg', '.png']);
 const SUMATRA_PDF_FILE = 'SumatraPDF-3.4.6-32.exe';
-const BUILD_VERSION = '2026-08-30.1';
+const BUILD_VERSION = '2026-08-30.3';
 
 // ─── Config Loading ─────────────────────────────────────────────────────────
-// When packaged as .exe, __dirname may be inside snapshot. Use process.execPath
-// to find config.json relative to the actual .exe location.
 const exeDir = path.dirname(process.execPath);
 const configPath = path.join(exeDir, 'config.json');
-// `pkg` runs JavaScript from a virtual snapshot, so pdf-to-printer's bundled
-// SumatraPDF executable must be shipped beside the agent executable instead.
+
 const sumatraPdfPath = process.pkg
   ? path.join(exeDir, SUMATRA_PDF_FILE)
   : path.join(__dirname, 'node_modules', 'pdf-to-printer', 'dist', SUMATRA_PDF_FILE);
@@ -30,12 +28,6 @@ if (fs.existsSync(configPath)) {
 } else {
   console.error('─────────────────────────────────────────────────');
   console.error('  ERROR: config.json not found!');
-  console.error('');
-  console.error('  Please place your config.json file next to this');
-  console.error('  QrPrintAgent.exe and restart the application.');
-  console.error('');
-  console.error('  Download your config.json from:');
-  console.error('  Your Admin Dashboard → Settings → Download Config');
   console.error('─────────────────────────────────────────────────');
   process.exit(1);
 }
@@ -43,38 +35,41 @@ if (fs.existsSync(configPath)) {
 const { API_URL, CAFE_ID, AGENT_SECRET_KEY, POLL_INTERVAL_MS } = config;
 
 if (!API_URL || !CAFE_ID || !AGENT_SECRET_KEY) {
-  console.error('ERROR: config.json is missing required fields: API_URL, CAFE_ID, AGENT_SECRET_KEY');
+  console.error('ERROR: config.json is missing required fields.');
   process.exit(1);
 }
 
 if (!fs.existsSync(sumatraPdfPath)) {
-  console.error(`ERROR: ${SUMATRA_PDF_FILE} was not found at: ${sumatraPdfPath}`);
-  console.error('Re-download the complete QR Print Agent package and keep all files together.');
+  console.error(`ERROR: ${SUMATRA_PDF_FILE} not found at ${sumatraPdfPath}`);
   process.exit(1);
 }
 
 const POLL_INTERVAL = parseInt(POLL_INTERVAL_MS) || 5000;
 
-// ─── Startup Banner ──────────────────────────────────────────────────────────
 console.log('');
 console.log('  ╔═══════════════════════════════════╗');
-console.log('  ║       QR Print Cafe Agent         ║');
+console.log('  ║    QR Print Multi-Layout Agent    ║');
 console.log('  ╚═══════════════════════════════════╝');
-console.log('');
 console.log(`  Cafe ID  : ${CAFE_ID}`);
-console.log(`  Server   : ${API_URL}`);
 console.log(`  Build    : ${BUILD_VERSION}`);
-console.log(`  Polling  : every ${POLL_INTERVAL / 1000}s`);
-console.log('');
-console.log('  ✅ Agent is running. Waiting for print jobs...');
-console.log('  (Press Ctrl+C to stop)');
+console.log('  ✅ Agent is running. Waiting for jobs...');
 console.log('');
 
-// ─── Temp Directory ──────────────────────────────────────────────────────────
 const tempDir = path.join(os.tmpdir(), 'qr-print-cafe-jobs');
 if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir, { recursive: true });
 }
+
+// Helper to form clean absolute URL
+const getFullUrl = (rawUrl) => {
+  if (!rawUrl) return '';
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return rawUrl;
+  }
+  const cleanApiUrl = API_URL.replace(/\/$/, '');
+  const cleanPath = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+  return `${cleanApiUrl}${cleanPath}`;
+};
 
 // ─── Polling Loop ────────────────────────────────────────────────────────────
 const pollJobs = async () => {
@@ -90,54 +85,77 @@ const pollJobs = async () => {
       await processJob(job);
     }
   } catch (error) {
-    if (error.response && error.response.status === 401) {
-      console.error('\nERROR: Authentication failed. Your AGENT_SECRET_KEY is invalid.');
-      console.error('Please download a fresh config.json from your Admin Dashboard → Settings.');
-      process.exit(1);
-    }
     console.error(`[${new Date().toLocaleTimeString()}] Error polling: ${error.message}`);
   } finally {
     setTimeout(pollJobs, POLL_INTERVAL);
   }
 };
 
-// ─── Job Processor ───────────────────────────────────────────────────────────
+// ─── Job Processor with Canvas Multi-Item Support ─────────────────────────────
 const processJob = async (job) => {
-  const extension = path.extname(job.fileName || '').toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(extension)) {
-    console.error(`  ❌ Refusing unsupported file type: ${job.fileName}`);
-    await updateJobStatus(job.id, 'failed', 'Unsupported file type');
-    return;
-  }
-
-  // Never use a customer-controlled filename for a local path.
-  const localFilePath = path.join(tempDir, `${job.id}${extension}`);
+  const localPdfPath = path.join(tempDir, `${job.id}_final.pdf`);
 
   try {
-    // 1. Download file
-    console.log(`  Downloading: ${job.fileName}`);
-    const fileResponse = await axios.get(job.downloadUrl, {
-      responseType: 'stream',
-      headers: { Authorization: `Bearer ${AGENT_SECRET_KEY}` },
-    });
-    const writer = fs.createWriteStream(localFilePath);
-    fileResponse.data.pipe(writer);
+    const layoutItems = Array.isArray(job.layout)
+      ? job.layout
+      : typeof job.layout === 'string'
+      ? JSON.parse(job.layout)
+      : [];
 
-    await new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
+    if (layoutItems && layoutItems.length > 0) {
+      console.log(`  Creating A4 layout for ${layoutItems.length} item(s)...`);
 
-    // 2. Print file
+      const pdfDoc = await PDFDocument.create();
+      const page = pdfDoc.addPage([595.28, 841.89]);
+      const { width: PAGE_WIDTH, height: PAGE_HEIGHT } = page.getSize();
+
+      for (const item of layoutItems) {
+        const itemUrl = getFullUrl(item.fileUrl || job.downloadUrl || job.fileUrl);
+        console.log(`  Downloading image asset: ${itemUrl}`);
+
+        // Fetch without custom Auth headers for static uploaded files
+        const imageRes = await axios.get(itemUrl, {
+          responseType: 'arraybuffer'
+        });
+        const imageBuffer = Buffer.from(imageRes.data);
+
+        let embeddedImage;
+        try {
+          embeddedImage = await pdfDoc.embedPng(imageBuffer);
+        } catch (e) {
+          embeddedImage = await pdfDoc.embedJpg(imageBuffer);
+        }
+
+        const x = (item.xPercent / 100) * PAGE_WIDTH;
+        const width = (item.widthPercent / 100) * PAGE_WIDTH;
+        const height = (item.heightPercent / 100) * PAGE_HEIGHT;
+        const y = PAGE_HEIGHT - ((item.yPercent / 100) * PAGE_HEIGHT) - height;
+
+        page.drawImage(embeddedImage, { x, y, width, height });
+      }
+
+      const pdfBytes = await pdfDoc.save();
+      fs.writeFileSync(localPdfPath, pdfBytes);
+
+    } else {
+      const downloadUrl = getFullUrl(job.downloadUrl || job.fileUrl);
+
+      console.log(`  Downloading single file: ${downloadUrl}`);
+      const fileResponse = await axios.get(downloadUrl, {
+        responseType: 'arraybuffer'
+      });
+      fs.writeFileSync(localPdfPath, Buffer.from(fileResponse.data));
+    }
+
     const printOptions = {
       copies: job.copies || 1,
-      ...(job.selectedPages && job.selectedPages !== 'all' ? { pages: job.selectedPages } : {}),
       monochrome: job.colorMode === 'bw',
       paperSize: job.paperSize || 'A4',
       sumatraPdfPath,
     };
-    console.log(`  Printing... (Copies: ${printOptions.copies}, Mode: ${job.colorMode})`);
-    await print(localFilePath, printOptions);
+
+    console.log(`  Printing A4 Sheet... (Copies: ${printOptions.copies}, Mode: ${job.colorMode})`);
+    await print(localPdfPath, printOptions);
 
     console.log(`  ✅ Job #${job.jobNumber} printed successfully!`);
     await updateJobStatus(job.id, 'completed');
@@ -146,9 +164,8 @@ const processJob = async (job) => {
     console.error(`  ❌ Error on job #${job.jobNumber}: ${error.message}`);
     await updateJobStatus(job.id, 'failed', error.message);
   } finally {
-    // 3. Cleanup temp file
-    if (fs.existsSync(localFilePath)) {
-      try { fs.unlinkSync(localFilePath); } catch (e) { /* ignore */ }
+    if (fs.existsSync(localPdfPath)) {
+      try { fs.unlinkSync(localPdfPath); } catch (e) { /* ignore */ }
     }
   }
 };
@@ -161,9 +178,8 @@ const updateJobStatus = async (jobId, status, errorMsg = null) => {
       { headers: { Authorization: `Bearer ${AGENT_SECRET_KEY}` } }
     );
   } catch (error) {
-    console.error(`  Failed to update status for job ${jobId}: ${error.message}`);
+    console.error(`  Failed to update status: ${error.message}`);
   }
 };
 
-// Start!
 pollJobs();

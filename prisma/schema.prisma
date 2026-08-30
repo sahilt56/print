@@ -38,6 +38,7 @@ model PrintJob {
   fileUrl        String
   fileName       String
   fileType       String
+  layout         String?
   pageCount      Int
   selectedPages  String   // e.g., "1,3,4-5" or "all"
   colorMode      String   // "bw" | "color"

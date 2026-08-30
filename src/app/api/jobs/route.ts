@@ -16,14 +16,18 @@ export async function POST(request: NextRequest) {
     const { 
       cafeId, fileUrl, fileName, fileType, 
       pageCount, selectedPages, colorMode, 
-      paperSize, copies, paymentMethod 
+      paperSize, copies, paymentMethod,
+      layout 
     } = body;
 
-    if (typeof cafeId !== 'string' || typeof fileUrl !== 'string' || typeof fileName !== 'string') {
+    if (typeof cafeId !== 'string' || typeof fileName !== 'string') {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    if (!UPLOAD_URL.test(fileUrl) || !ALLOWED_FILE_TYPES.has(fileType)) {
+    // Extract primary fileUrl if fileUrl is empty but layout array is present
+    const primaryFileUrl = fileUrl || (Array.isArray(layout) && layout.length > 0 ? layout[0].fileUrl : '');
+
+    if (!primaryFileUrl || !UPLOAD_URL.test(primaryFileUrl) || !ALLOWED_FILE_TYPES.has(fileType)) {
       return NextResponse.json({ error: 'Invalid uploaded file' }, { status: 400 });
     }
 
@@ -62,9 +66,10 @@ export async function POST(request: NextRequest) {
       data: {
         jobNumber,
         cafeId: cafe.id,
-        fileUrl,
+        fileUrl: primaryFileUrl,
         fileName,
         fileType,
+        layout: layout ? JSON.stringify(layout) : null, // Direct Json object/array save for multi-image
         pageCount,
         selectedPages,
         colorMode,
