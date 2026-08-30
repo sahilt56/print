@@ -92,7 +92,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               fullWidth 
               onClick={() => document.getElementById('upload-doc')?.click()}
             >
-              <span role="img" aria-label="document">📄</span> Upload Document
+               Upload Document
             </Button>
           </div>
           
@@ -111,7 +111,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               fullWidth
               onClick={() => document.getElementById('take-photo')?.click()}
             >
-              <span role="img" aria-label="camera">📷</span> Take Photo
+             Take Photo
             </Button>
           </div>
         </div>

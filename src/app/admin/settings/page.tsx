@@ -83,7 +83,7 @@ export default async function SettingsPage() {
 
       {/* ── Pricing & Branding Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>⚙️ Cafe Branding &amp; Pricing Configuration</h2>
+        <h2 className={styles.sectionTitle}>Cafe Branding &amp; Pricing Configuration</h2>
         <p className={styles.description}>
           Upload your cafe logo and set per-page printing prices.
         </p>
@@ -96,7 +96,7 @@ export default async function SettingsPage() {
 
       {/* ── Print Agent Setup Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>🖨️ Print Agent Setup</h2>
+        <h2 className={styles.sectionTitle}>Print Agent Setup</h2>
         <p className={styles.description}>
           Download the Print Agent to connect your cafe computer to the cloud.
           Place the <code>config.json</code> in the same folder as the agent and run it.
@@ -114,7 +114,7 @@ export default async function SettingsPage() {
 
       {/* ── Agent Key Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>🔑 Agent Key</h2>
+        <h2 className={styles.sectionTitle}> Agent Key</h2>
         <p className={styles.description}>
           This is the secret key used by your Local Print Agent. Do not share this with anyone.
         </p>

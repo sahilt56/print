@@ -311,9 +311,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
 
                   {item.isPdf && (
                     <div className={styles.pdfPlaceholder}>
-                      <span role="img" aria-label="PDF" className={styles.pdfIcon}>
-                        📄
-                      </span>
                       <p>PDF Document</p>
                     </div>
                   )}
@@ -358,26 +355,26 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
       <div className={styles.actionGrid}>
         {selectedItem?.isImage && (
           <Button variant="secondary" onClick={handleScanCrop}>
-            ✂️ Scan &amp; Crop
+             Scan &amp; Crop
           </Button>
         )}
 
         {selectedItem?.isImage && (
           <Button variant="secondary" onClick={rotateSelectedImage} disabled={isRotating}>
-            🔄 {isRotating ? 'Rotating…' : 'Rotate'}
+             {isRotating ? 'Rotating…' : 'Rotate'}
           </Button>
         )}
 
         <Button variant="secondary" onClick={() => replaceInputRef.current?.click()}>
-          🖼️ Use Another Image
+           Use Another Image
         </Button>
 
         <Button variant="secondary" onClick={() => addImageInputRef.current?.click()}>
-          ➕ Add Another Image
+           Add Another Image
         </Button>
 
         <Button variant="danger" onClick={handleDelete}>
-          🗑️ Delete
+          Delete
         </Button>
       </div>
 

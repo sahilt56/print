@@ -73,7 +73,7 @@ export default async function AdminDashboard() {
       {/* New: Awaiting Payment */}
       {pending.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>⏳ Awaiting Payment</h2>
+          <h2 className={styles.sectionTitle}> Awaiting Payment</h2>
           <div className={styles.jobList}>
             {pending.map(job => (
               <Card key={job.id} className={styles.jobCard}>
@@ -95,14 +95,14 @@ export default async function AdminDashboard() {
       {/* Ready to Print */}
       {paid.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>🖨️ Ready to Print</h2>
+          <h2 className={styles.sectionTitle}> Ready to Print</h2>
           <div className={styles.jobList}>
             {paid.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.readyCard}`}>
                 <JobCard job={job} />
                 <div className={styles.actions}>
                   <form action={markJobComplete.bind(null, job.id)}>
-                    <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`}>🖨️ Mark Printed</button>
+                    <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`}> Mark Printed</button>
                   </form>
                   <form action={cancelJob.bind(null, job.id)}>
                     <button type="submit" className={`${styles.btn} ${styles.btnDanger}`}>✕ Cancel</button>
@@ -117,7 +117,7 @@ export default async function AdminDashboard() {
       {/* Printing */}
       {inProgress.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>🔄 Printing...</h2>
+          <h2 className={styles.sectionTitle}> Printing...</h2>
           <div className={styles.jobList}>
             {inProgress.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.printingCard}`}>
@@ -136,7 +136,7 @@ export default async function AdminDashboard() {
       {/* Completed */}
       {done.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>✅ Recent History</h2>
+          <h2 className={styles.sectionTitle}> Recent History</h2>
           <div className={styles.jobList}>
             {done.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.doneCard}`}>
@@ -178,13 +178,13 @@ function JobCard({ job }: { job: PrintJob }) {
 
       <div className={styles.jobDetails}>
         <span className={styles.detail}>
-          📄 <a href={`/api/files/${job.id}`} target="_blank" rel="noreferrer" className={styles.link}>{job.fileName}</a>
+           <a href={`/api/files/${job.id}`} target="_blank" rel="noreferrer" className={styles.link}>{job.fileName}</a>
         </span>
         <span className={styles.detail}>
-          🖨️ {job.copies} × {job.pageCount} page{job.pageCount !== 1 ? 's' : ''} &bull; {job.colorMode === 'bw' ? 'B&W' : 'Color'} &bull; {job.paperSize}
+           {job.copies} × {job.pageCount} page{job.pageCount !== 1 ? 's' : ''} &bull; {job.colorMode === 'bw' ? 'B&W' : 'Color'} &bull; {job.paperSize}
         </span>
-        <span className={styles.detail}>💰 ₹{job.totalAmount} cash</span>
-        <span className={styles.detail}>🕐 {timeAgo}</span>
+        <span className={styles.detail}> ₹{job.totalAmount} cash</span>
+        <span className={styles.detail}> {timeAgo}</span>
       </div>
     </div>
   );
