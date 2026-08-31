@@ -20,17 +20,28 @@ export const authOptions: NextAuthOptions = {
 
         const username = credentials.username.trim().toLowerCase();
         const superAdminId = process.env.SUPER_ADMIN_USER_ID?.trim().toLowerCase();
-        const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
-
+        const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD?.trim();
+        console.log("--- DEBUG START ---");
+        console.log("1. Entered Username:", username);
+        console.log("2. Env Admin ID:", superAdminId);
+        console.log("3. Entered Password:", credentials.password);
+        console.log("4. Env Admin Hash:", superAdminPassword);
+        console.log("--- DEBUG END ---");
         // 1. Super Admin Authentication Check
         if (superAdminId && superAdminPassword && username === superAdminId) {
-          const received = Buffer.from(credentials.password, 'utf8');
-          const expected = Buffer.from(superAdminPassword, 'utf8');
+          let isValid = false;
 
-          if (
-            received.length === expected.length &&
-            crypto.timingSafeEqual(received, expected)
-          ) {
+          if (superAdminPassword.startsWith('$2')) {
+            isValid = await bcrypt.compare(credentials.password, superAdminPassword);
+          } else {
+            const received = Buffer.from(credentials.password, 'utf8');
+            const expected = Buffer.from(superAdminPassword, 'utf8');
+            if (received.length === expected.length) {
+              isValid = crypto.timingSafeEqual(received, expected);
+            }
+          }
+
+          if (isValid) {
             return {
               id: 'super-admin-id',
               name: 'System Admin',
