@@ -40,6 +40,18 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
     }
   }, [file, router, cafeId]);
 
+  useEffect(() => {
+    if (!isSubmitting) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isSubmitting]);
+
   if (!file) return null;
 
   const pageCount = 1; 
@@ -51,62 +63,50 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
   const totalAmount = pageCount * copies * prices[colorMode as keyof typeof prices];
 
   const uploadAndCreateJob = async () => {
-    // 1. Upload all items in layout to /api/upload
-    const uploadedItems = await Promise.all(
-      items.map(async (item) => {
-        const formData = new FormData();
-        formData.append('file', item.file);
-        
-        const uploadRes = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-        
-        if (!uploadRes.ok) {
-          const errData = await uploadRes.json().catch(() => ({}));
-          throw new Error(errData.error || 'File upload failed');
-        }
-        
-        const { fileUrl } = await uploadRes.json();
+    const formData = new FormData();
 
-        return {
+    formData.append('cafeId', cafeId);
+    formData.append('fileName', items[0]?.file.name || 'document.png');
+    formData.append('fileType', items[0]?.file.type || 'image/png');
+    formData.append('pageCount', String(pageCount));
+    formData.append('selectedPages', selectedPages);
+    formData.append('colorMode', colorMode);
+    formData.append('paperSize', 'A4');
+    formData.append('copies', String(copies));
+    formData.append('paymentMethod', 'cash');
+    formData.append(
+      'layout',
+      JSON.stringify(
+        items.map((item) => ({
           id: item.id,
-          fileUrl, // Absolute path (/uploads/...) returned from server
-          xPercent: (item.pos.x / 380) * 100, // Normalized A4 Base
+          xPercent: (item.pos.x / 380) * 100,
           yPercent: (item.pos.y / 537.4) * 100,
           widthPercent: (item.size.width / 380) * 100,
           heightPercent: (item.size.height / 537.4) * 100,
-        };
-      })
+        }))
+      )
     );
 
-    // 2. Submit Job with layout array to /api/jobs
+    items.forEach((item) => {
+      formData.append('files', item.file);
+    });
+
     const jobRes = await fetch('/api/jobs', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cafeId,
-        fileName: items[0]?.file.name || 'document.png',
-        fileType: items[0]?.file.type || 'image/png',
-        pageCount,
-        selectedPages,
-        colorMode,
-        paperSize: 'A4',
-        copies,
-        paymentMethod: 'cash',
-        layout: uploadedItems, // Send complete layout array
-      }),
+      body: formData,
     });
 
     if (!jobRes.ok) {
       const jobErrData = await jobRes.json().catch(() => ({}));
       throw new Error(jobErrData.error || 'Job submission failed');
     }
-    
+
     return await jobRes.json();
   };
 
   const handleCashSubmit = async () => {
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
     setError('');
     try {

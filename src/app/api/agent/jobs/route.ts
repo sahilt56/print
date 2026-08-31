@@ -46,18 +46,10 @@ export async function GET(request: NextRequest) {
       return apiError('Unauthorized: Invalid Agent Secret Key', 403);
     }
 
-    // 4. Get all possible cafe identifiers for query
-    const possibleCafeIds = [
-      cafeDoc.qrCode,
-      cafeDoc.loginId,
-      cafeDoc._id.toString(),
-    ].filter(Boolean);
-
-    // 5. Atomically claim a job (CRITICAL FIX FOR RACE CONDITION)
-    // This ensures only ONE agent can successfully claim a job even if two call simultaneously
+    // 4. Claim jobs for the cafe's canonical ObjectId.
     const job = await PrintJob.findOneAndUpdate(
       {
-        cafeId: { $in: possibleCafeIds },
+        cafeId: cafeDoc._id,
         paymentStatus: 'paid', // CRITICAL: Only printable jobs
         printStatus: { $in: ['queued', 'pending'] },
         attemptCount: { $lt: 3 }, // Haven't exceeded max attempts

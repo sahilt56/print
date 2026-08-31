@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import dbConnect from './dbConnect';
 import PrintJob from '@/models/PrintJob';
 import Cafe from '@/models/Cafe';
@@ -88,15 +89,14 @@ export async function claimPrintJobAtomic(
     return { success: false, error: 'Cafe not found or inactive' };
   }
 
-  const possibleCafeIds = [cafe.qrCode, cafe.loginId, cafe._id.toString()].filter(Boolean);
   const claimedAt = new Date();
   const timeoutAt = new Date(claimedAt.getTime() + timeoutMinutes * 60 * 1000);
 
   // Atomic operation: find and update in single call
-  // This ensures only ONE agent can successfully claim a job
+  // This ensures only ONE agent can successfully claim a job.
   const job = await PrintJob.findOneAndUpdate(
     {
-      cafeId: { $in: possibleCafeIds },
+      cafeId: cafe._id,
       paymentStatus: 'paid',
       printStatus: { $in: ['queued', 'pending'] },
       attemptCount: { $lt: 3 }, // Haven't exceeded max attempts
@@ -207,9 +207,16 @@ export async function failPrintJob(jobId: string, agentId: string, reason?: stri
 export async function getJobWithAuth(jobId: string, authorizedCafeIds: string[]) {
   await dbConnect();
 
+  const validObjectIds = authorizedCafeIds
+    .map(id => {
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+      return new mongoose.Types.ObjectId(id);
+    })
+    .filter((id): id is mongoose.Types.ObjectId => Boolean(id));
+
   const job = await PrintJob.findOne({
     _id: jobId,
-    cafeId: { $in: authorizedCafeIds },
+    cafeId: { $in: validObjectIds },
   });
 
   return job;

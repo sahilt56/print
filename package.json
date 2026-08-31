@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "create:cafe": "node scripts/seed-admin.js",
-    "postinstall": "prisma skills sync || exit 0"
+    "create:cafe": "node scripts/seed-admin.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

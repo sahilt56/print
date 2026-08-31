@@ -197,6 +197,57 @@ export async function deleteDocuments(publicIds: string[], resourceType?: string
   }
 }
 
+export async function cleanupJobCloudinaryAssets(job: {
+  cloudinaryPublicId?: string | null;
+  cloudinaryResourceType?: string | null;
+  fileUrl?: string | null;
+  layout?: Array<{
+    cloudinaryPublicId?: string | null;
+    cloudinaryResourceType?: string | null;
+    fileUrl?: string | null;
+  }>;
+}): Promise<void> {
+  const itemsToDelete: Array<{ publicId: string; resourceType?: string }> = [];
+
+  const addCandidate = (publicId?: string | null, resourceType?: string | null) => {
+    if (!publicId || typeof publicId !== 'string') return;
+    const normalizedPublicId = publicId.trim();
+    if (!normalizedPublicId) return;
+    if (normalizedPublicId.startsWith('http://') || normalizedPublicId.startsWith('https://')) return;
+    if (normalizedPublicId.startsWith('/')) return;
+    itemsToDelete.push({ publicId: normalizedPublicId, resourceType: resourceType || undefined });
+  };
+
+  addCandidate(job.cloudinaryPublicId, job.cloudinaryResourceType);
+  addCandidate(job.fileUrl, job.cloudinaryResourceType);
+
+  for (const item of job.layout || []) {
+    addCandidate(item.cloudinaryPublicId, item.cloudinaryResourceType);
+    addCandidate(item.fileUrl, item.cloudinaryResourceType);
+  }
+
+  const uniqueItems = itemsToDelete.filter((item, index, array) =>
+    array.findIndex(candidate => candidate.publicId === item.publicId && candidate.resourceType === item.resourceType) === index
+  );
+
+  for (const item of uniqueItems) {
+    try {
+      await deleteDocument(item.publicId, item.resourceType);
+    } catch (error) {
+      console.warn('[Cloudinary Cleanup] Failed to delete asset', {
+        publicId: item.publicId,
+        resourceType: item.resourceType,
+        error,
+      });
+      try {
+        await deleteDocument(item.publicId, item.resourceType === 'raw' ? 'image' : 'raw');
+      } catch {
+        // Intentionally keep the original error log and fall back only once.
+      }
+    }
+  }
+}
+
 /**
  * Verify Cloudinary configuration is valid
  */

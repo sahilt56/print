@@ -6,6 +6,7 @@ import Cafe from '@/models/Cafe';
 import PrintJob from '@/models/PrintJob';
 import { apiError, apiSuccess, internalError, isRequiredString, isRequiredNumber, isEnum } from '@/lib/api-utils';
 import { validateJobPricing } from '@/lib/job-operations';
+import { uploadDocument, deleteDocument } from '@/lib/cloudinary';
 
 const DEFAULT_PRICES = { bw: 2, color: 10 };
 const ALLOWED_PAPER_SIZES = ['A4', 'A3', 'Letter'] as const;
@@ -27,7 +28,40 @@ export async function POST(request: NextRequest) {
   try {
     await dbConnect();
 
-    const body = await request.json();
+    const contentType = request.headers.get('content-type') || '';
+    const isMultipart = contentType.includes('multipart/form-data');
+
+    let body: Record<string, any> = {};
+    let fileEntries: File[] = [];
+
+    if (isMultipart) {
+      const formData = await request.formData();
+      formData.forEach((value, key) => {
+        if (value instanceof File) {
+          if (key === 'files') {
+            fileEntries.push(value);
+          }
+          return;
+        }
+
+        if (key === 'layout' && typeof value === 'string') {
+          try {
+            body.layout = JSON.parse(value);
+          } catch {
+            body.layout = undefined;
+          }
+          return;
+        }
+
+        body[key] = String(value);
+      });
+
+      if (body.pageCount !== undefined) body.pageCount = Number(body.pageCount);
+      if (body.copies !== undefined) body.copies = Number(body.copies);
+    } else {
+      body = await request.json();
+    }
+
     const {
       cafeId,
       fileUrl,
@@ -45,6 +79,10 @@ export async function POST(request: NextRequest) {
       cloudinaryFormat,
       cloudinaryVersion,
     } = body;
+
+    if (isMultipart && fileEntries.length === 0) {
+      return apiError('At least one file is required', 400);
+    }
 
     // 1. Validate required fields
     if (!isRequiredString(cafeId)) {
@@ -146,7 +184,6 @@ export async function POST(request: NextRequest) {
       if (layout.length > 10) {
         return apiError('Maximum 10 layout items allowed', 400);
       }
-      // Validate layout items
       for (const item of layout) {
         if (typeof item !== 'object' || item === null) {
           return apiError('Invalid layout item', 400);
@@ -163,33 +200,86 @@ export async function POST(request: NextRequest) {
     // 8. Generate unique job number
     const jobNumber = `PRINT-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
+    let resolvedLayout = Array.isArray(layout) ? layout : [];
+    let uploadedCloudAsset: { public_id: string; resource_type: string; format: string; version: number } | null = null;
+
+    if (isMultipart && fileEntries.length > 0) {
+      const uploadedFiles = await Promise.all(
+        fileEntries.map(async (file) => {
+          const buffer = Buffer.from(await file.arrayBuffer());
+          const result = await uploadDocument(buffer, 'cafe_print_docs');
+          return {
+            fileName: file.name,
+            fileType: file.type || 'image/png',
+            fileUrl: result.public_id,
+            cloudinaryPublicId: result.public_id,
+            cloudinaryResourceType: result.resource_type === 'raw' ? 'raw' : 'image',
+            cloudinaryFormat: result.format || file.type || 'png',
+            cloudinaryVersion: result.version ?? 0,
+          };
+        })
+      );
+
+      if (uploadedFiles.length > 0) {
+        const layoutMeta = Array.isArray(resolvedLayout) ? resolvedLayout : [];
+        resolvedLayout = uploadedFiles.map((fileData, index) => ({
+          id: layoutMeta[index]?.id || `item-${index}`,
+          fileName: fileData.fileName,
+          fileUrl: fileData.fileUrl,
+          cloudinaryPublicId: fileData.cloudinaryPublicId,
+          cloudinaryResourceType: fileData.cloudinaryResourceType,
+          cloudinaryFormat: fileData.cloudinaryFormat,
+          cloudinaryVersion: fileData.cloudinaryVersion,
+          xPercent: layoutMeta[index]?.xPercent ?? 0,
+          yPercent: layoutMeta[index]?.yPercent ?? 0,
+          widthPercent: layoutMeta[index]?.widthPercent ?? 100,
+          heightPercent: layoutMeta[index]?.heightPercent ?? 100,
+        }));
+
+        uploadedCloudAsset = {
+          public_id: uploadedFiles[0].cloudinaryPublicId,
+          resource_type: uploadedFiles[0].cloudinaryResourceType,
+          format: uploadedFiles[0].cloudinaryFormat,
+          version: uploadedFiles[0].cloudinaryVersion,
+        };
+      }
+    }
+
     // 9. Prepare job data
-    const hasLayout = Array.isArray(layout) && layout.length > 0;
-    const primaryFileUrl = fileUrl || (hasLayout ? layout[0].fileUrl : null);
+    const hasLayout = Array.isArray(resolvedLayout) && resolvedLayout.length > 0;
+    const primaryFileUrl = fileUrl || uploadedCloudAsset?.public_id || (hasLayout ? resolvedLayout[0].fileUrl : null);
 
     // 10. Create job
-    const newJob = await PrintJob.create({
-      jobNumber,
-      cafeId: cafe._id,
-      fileUrl: primaryFileUrl,
-      fileName: fileName || 'Print Document',
-      fileType: fileType || 'image/png',
-      cloudinaryPublicId: cloudinaryPublicId || null,
-      cloudinaryResourceType: cloudinaryResourceType || null,
-      cloudinaryFormat: cloudinaryFormat || null,
-      cloudinaryVersion: Number.isFinite(Number(cloudinaryVersion)) ? Number(cloudinaryVersion) : null,
-      layout: hasLayout ? layout : [],
-      pageCount: finalPageCount,
-      selectedPages: selectedPages || 'all',
-      colorMode,
-      paperSize,
-      copies: finalCopies,
-      pricePerPage,
-      totalAmount,
-      paymentMethod,
-      paymentStatus: 'pending',
-      printStatus: 'queued',
-    });
+    let newJob;
+    try {
+      newJob = await PrintJob.create({
+        jobNumber,
+        cafeId: cafe._id,
+        fileUrl: primaryFileUrl,
+        fileName: fileName || 'Print Document',
+        fileType: fileType || 'image/png',
+        cloudinaryPublicId: cloudinaryPublicId || uploadedCloudAsset?.public_id || null,
+        cloudinaryResourceType: cloudinaryResourceType || uploadedCloudAsset?.resource_type || null,
+        cloudinaryFormat: cloudinaryFormat || uploadedCloudAsset?.format || null,
+        cloudinaryVersion: Number.isFinite(Number(cloudinaryVersion)) ? Number(cloudinaryVersion) : (uploadedCloudAsset?.version ?? null),
+        layout: hasLayout ? resolvedLayout : [],
+        pageCount: finalPageCount,
+        selectedPages: selectedPages || 'all',
+        colorMode,
+        paperSize,
+        copies: finalCopies,
+        pricePerPage,
+        totalAmount,
+        paymentMethod,
+        paymentStatus: 'pending',
+        printStatus: 'queued',
+      });
+    } catch (error) {
+      if (uploadedCloudAsset?.public_id) {
+        await deleteDocument(uploadedCloudAsset.public_id, uploadedCloudAsset.resource_type).catch(() => {});
+      }
+      throw error;
+    }
 
     console.info('[Jobs Create] Job created', {
       jobId: newJob._id,

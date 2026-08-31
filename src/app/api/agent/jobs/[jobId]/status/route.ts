@@ -5,6 +5,7 @@ import PrintJob from '@/models/PrintJob';
 import Cafe from '@/models/Cafe';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
+import { cleanupJobCloudinaryAssets } from '@/lib/cloudinary';
 
 export async function POST(
   request: NextRequest,
@@ -48,6 +49,12 @@ export async function POST(
     }
 
     if (status === 'completed' || status === 'failed') {
+      try {
+        await cleanupJobCloudinaryAssets(job.toObject ? job.toObject() : job);
+      } catch (error) {
+        console.warn('[Agent Status] Cloudinary cleanup failed', { jobId, status, error });
+      }
+
       // Delete Main File from Disk
       if (job.fileUrl) {
         const filePath = join(process.cwd(), 'public', job.fileUrl);
@@ -73,6 +80,10 @@ export async function POST(
     job.fileUrl = null;
     job.layout = [];
     job.fileName = 'Deleted for Privacy';
+    job.cloudinaryPublicId = null;
+    job.cloudinaryResourceType = null;
+    job.cloudinaryFormat = null;
+    job.cloudinaryVersion = null;
     await job.save();
 
     return NextResponse.json({ success: true });

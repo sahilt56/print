@@ -37,10 +37,6 @@ yarn-error.log*
 .env.production
 print-agent/.env
 
-# Database (SQLite - don't commit dev data)
-prisma/dev.db
-prisma/dev.db-journal
-
 # Uploaded files (transient data)
 /uploads/
 public/uploads/*

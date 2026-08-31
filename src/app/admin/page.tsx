@@ -63,11 +63,9 @@ export default async function AdminDashboard() {
     );
   }
 
-  const possibleCafeIds = [cafe.qrCode, cafe.loginId, cafe._id.toString()].filter(Boolean);
-
-  // Fetch jobs using Mongoose matching any variant of cafeId
+  // Match the schema's ObjectId-backed cafeId field.
   const rawJobs = await PrintJob.find({
-    cafeId: { $in: possibleCafeIds },
+    cafeId: cafe._id,
   })
     .sort({ createdAt: -1 })
     .limit(50)

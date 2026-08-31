@@ -8,6 +8,7 @@ import Cafe from '@/models/Cafe';
 import PrintJob from '@/models/PrintJob';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
+import { cleanupJobCloudinaryAssets } from '@/lib/cloudinary';
 
 async function updateOwnedJob(jobId: string, data: { paymentStatus?: string; printStatus?: string }) {
   const session = await getServerSession(authOptions);
@@ -29,13 +30,11 @@ async function updateOwnedJob(jobId: string, data: { paymentStatus?: string; pri
 
   if (!cafe) throw new Error('Cafe not found');
 
-  const possibleCafeIds = [cafe.qrCode, cafe.loginId, cafe._id.toString()].filter(Boolean);
-
-  // Update using Mongoose
+  // Update using the canonical ObjectId-based cafeId stored on each job.
   const result = await PrintJob.updateOne(
     {
       _id: jobId,
-      cafeId: { $in: possibleCafeIds },
+      cafeId: cafe._id,
     },
     { $set: data }
   );
@@ -51,7 +50,38 @@ export async function markJobPaid(jobId: string) {
 }
 
 export async function markJobComplete(jobId: string) {
-  await updateOwnedJob(jobId, { printStatus: 'completed', paymentStatus: 'paid' });
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) throw new Error('Unauthorized');
+
+  await dbConnect();
+
+  const userObj = session.user as any;
+  const cafeId = userObj.cafeId || userObj.qrCode;
+  const loginId = userObj.loginId || userObj.email;
+
+  const cafe = await Cafe.findOne({
+    $or: [
+      ...(cafeId ? [{ qrCode: cafeId }] : []),
+      ...(loginId ? [{ loginId: loginId }] : []),
+    ],
+  }).lean();
+
+  if (!cafe) throw new Error('Cafe not found');
+
+  const job = await PrintJob.findOne({
+    _id: jobId,
+    cafeId: cafe._id,
+  });
+
+  if (job) {
+    await cleanupJobCloudinaryAssets(job.toObject ? job.toObject() : job);
+  }
+
+  await PrintJob.updateOne(
+    { _id: jobId, cafeId: cafe._id },
+    { $set: { printStatus: 'completed', paymentStatus: 'paid' } }
+  );
+
   revalidatePath('/admin');
 }
 
@@ -63,6 +93,12 @@ export async function cancelJob(jobId: string) {
 
   const job = await PrintJob.findById(jobId);
   if (job) {
+    try {
+      await cleanupJobCloudinaryAssets(job.toObject ? job.toObject() : job);
+    } catch (error) {
+      console.warn('[Admin Cancel] Cloudinary cleanup failed', { jobId, error });
+    }
+
     // Delete Main File from Disk immediately
     if (job.fileUrl) {
       const filePath = join(process.cwd(), 'public', job.fileUrl);
@@ -84,6 +120,10 @@ export async function cancelJob(jobId: string) {
     job.fileUrl = null;
     job.layout = [];
     job.fileName = 'Cancelled for Privacy';
+    job.cloudinaryPublicId = null;
+    job.cloudinaryResourceType = null;
+    job.cloudinaryFormat = null;
+    job.cloudinaryVersion = null;
     await job.save();
   }
 

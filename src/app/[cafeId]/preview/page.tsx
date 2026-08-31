@@ -250,62 +250,16 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     }
   };
 
-  // Helper to Upload a single file to server (/api/upload)
-  const uploadFileToServer = async (fileToUpload: File): Promise<string> => {
-    const formData = new FormData();
-    formData.append('file', fileToUpload);
-
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.error || `Failed to upload ${fileToUpload.name}`);
-    }
-
-    const data = await res.json();
-    return data.fileUrl; // Return uploaded server URL (e.g., /uploads/abcd.png)
-  };
-
   const handleNextStep = async () => {
     setIsUploading(true);
     try {
-      // Step 1: Upload all files in canvas to server
-      const updatedItems = await Promise.all(
-        items.map(async (item) => {
-          // If URL is local blob, upload it to server
-          let serverUrl = item.url;
-          if (item.url.startsWith('blob:') || !item.url.startsWith('/uploads/')) {
-            serverUrl = await uploadFileToServer(item.file);
-          }
-          return {
-            ...item,
-            url: serverUrl,
-          };
-        })
-      );
-
-      // Step 2: Update context items with server URLs
-      setItems(updatedItems);
-
-      // Step 3: Calculate percentage layout payload
-      const layoutPayload = updatedItems.map((item) => ({
-        id: item.id,
-        fileName: item.file.name,
-        xPercent: (item.pos.x / currentCanvasWidth) * 100,
-        yPercent: (item.pos.y / currentCanvasHeight) * 100,
-        widthPercent: (item.size.width / currentCanvasWidth) * 100,
-        heightPercent: (item.size.height / currentCanvasHeight) * 100,
-        fileUrl: item.url,
-      }));
-
-      console.log('Final Server-Uploaded Layout Payload:', layoutPayload);
+      // Keep preview-local blob URLs as-is. Final upload happens only when the user submits the print job.
+      // This avoids uploading the same file twice to Cloudinary.
+      setItems(items);
       router.push(`/${cafeId}/options`);
     } catch (err: any) {
-      console.error('Upload Error:', err);
-      alert(err.message || 'File upload failed. Please try again.');
+      console.error('Preview navigation Error:', err);
+      alert(err.message || 'Something went wrong. Please try again.');
     } finally {
       setIsUploading(false);
     }
