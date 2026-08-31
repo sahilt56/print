@@ -27,6 +27,7 @@ export const authOptions: NextAuthOptions = {
         console.log("3. Entered Password:", credentials.password);
         console.log("4. Env Admin Hash:", superAdminPassword);
         console.log("--- DEBUG END ---");
+        // hii
         // 1. Super Admin Authentication Check
         if (superAdminId && superAdminPassword && username === superAdminId) {
           let isValid = false;
