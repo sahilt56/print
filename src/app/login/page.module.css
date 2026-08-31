@@ -1,16 +1,47 @@
 .container {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  min-height: 100vh;
-  background-color: var(--background);
-  padding: 1rem;
+  min-height: 100dvh;
+  
+  padding: 5rem 1rem;
+  position: relative;
+
+  background-image: url('../../../public/mobile.png'); 
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
+@media (min-width: 768px) {
+  .container {
+    background-image: url('../../../public/background.png');
+    align-items: flex-end;    
+    padding-bottom: 8rem;      
+  }
+}
+
+/* .overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 1;
+} */
 
 .loginCard {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   padding: 2.5rem 2rem;
+  position: relative;
+  z-index: 2;
+  /* 🌟 Modern Glassmorphism Effect */
+  background: rgba(255, 255, 255, 0.103);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 20px; /* Smooth rounded corners */
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
 }
 
 .title {
@@ -22,7 +53,7 @@
 }
 
 .subtitle {
-  color: var(--muted);
+  color: black;
   text-align: center;
   margin-bottom: 2rem;
   font-size: 0.95rem;
@@ -74,16 +105,65 @@
 .signupLink {
   text-align: center;
   font-size: 0.875rem;
-  color: var(--muted);
+  color: black;
   margin-top: 0.5rem;
 }
 
-.signupLink a {
-  color: var(--primary);
-  text-decoration: none;
-  font-weight: 600;
+.developerBadge {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.75);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50px; /* Capsule shape */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  color: #ffffff;
+  font-family: inherit;
 }
 
-.signupLink a:hover {
-  text-decoration: underline;
+/* .devAvatar {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #fff;
+} */
+ .devAvatarImg {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover; /* Photo khichegi nahi, perfectly crop hokar fit hogi */
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
+
+.devInfo {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.devTitle {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.devName {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+

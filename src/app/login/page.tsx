@@ -36,6 +36,9 @@ export default function LoginPage() {
 
   return (
     <div className={styles.container}>
+      {/* 👈 Poori screen ka dark overlay background image ke liye */}
+      <div className={styles.overlay} />
+
       <Card className={styles.loginCard}>
         <h1 className={styles.title}>Cafe Owner Login</h1>
         <p className={styles.subtitle}>Sign in to manage your print queue</p>
@@ -77,6 +80,13 @@ export default function LoginPage() {
           <p className={styles.signupLink}>Contact the service provider to get your User ID and password.</p>
         </form>
       </Card>
+      <div className={styles.developerBadge}>
+  <img src="./mobile.png" alt="Sahil Kumar" className={styles.devAvatarImg} />
+  <div className={styles.devInfo}>
+    <span className={styles.devTitle}>Developer</span>
+    <span className={styles.devName}>Sahil Kumar</span>
+  </div>
+</div>
     </div>
   );
 }
