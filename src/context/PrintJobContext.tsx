@@ -27,10 +27,11 @@ interface PrintJobState {
   setColorMode: (mode: 'bw' | 'color') => void;
   setCopies: (copies: number) => void;
   setSelectedPages: (pages: string) => void;
+  totalPages: number;
+  setTotalPages: (pages: number) => void;
 }
 
 const PrintJobContext = createContext<PrintJobState | undefined>(undefined);
-
 export function PrintJobProvider({ children }: { children: ReactNode }) {
   const [file, setFileState] = useState<File | null>(null);
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
@@ -39,8 +40,9 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
   const [colorMode, setColorMode] = useState<'bw' | 'color'>('bw');
   const [copies, setCopies] = useState<number>(1);
   const [selectedPages, setSelectedPages] = useState<string>('all');
-
+  const [totalPages, setTotalPages] = useState<number>(1);
   const setFile = (newFile: File | null) => {
+    console.log("🔍 DEBUG - setFile called with:", newFile);
     if (filePreviewUrl) {
       URL.revokeObjectURL(filePreviewUrl);
     }
@@ -93,6 +95,7 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
         setCopies,
         selectedPages,
         setSelectedPages,
+        totalPages, setTotalPages
       }}
     >
       {children}

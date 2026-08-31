@@ -14,8 +14,7 @@ import {
   PlusCircle, 
   Trash2, 
   ArrowLeft, 
-  ArrowRight, 
-  FileText 
+  ArrowRight 
 } from 'lucide-react';
 
 const A4_RATIO = 297 / 210; // 1.4142
@@ -30,6 +29,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     activeItemId,
     setActiveItemId,
     setFile,
+    setTotalPages,
   } = usePrintJob();
   const { cafeId } = React.use(params);
 
@@ -40,6 +40,40 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
   const [a4Width, setA4Width] = useState<number>(0);
   const [isRotating, setIsRotating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Safe & fast PDF page counter without external library worker clashes
+ // Accurate PDF Page Counter using /Type /Pages /Count
+  const countPdfPages = async (targetFile: File): Promise<number> => {
+    if (!targetFile || !(targetFile instanceof Blob)) return 1;
+    try {
+      const buffer = await targetFile.arrayBuffer();
+      const decoder = new TextDecoder('utf-8');
+      const text = decoder.decode(buffer);
+      
+      // PDF ke root /Pages object ke andar jo /Count hota hai, wahi asli total pages hote hain
+      const pageCountMatch = text.match(/\/Type\s*\/Pages\b[\s\S]*?\/Count\s+(\d+)/);
+      if (pageCountMatch && pageCountMatch[1]) {
+        const pages = parseInt(pageCountMatch[1], 10);
+        if (!isNaN(pages) && pages > 0) return pages;
+      }
+
+      // Fallback agar root pages na mile toh general /Count dhoondo lekinpehla ya sabse chhota/sahi match lo
+      const matches = text.match(/\/Count\s+(\d+)/g);
+      if (matches && matches.length > 0) {
+        const counts = matches.map(m => {
+          const num = m.match(/\d+/);
+          return num ? parseInt(num[0], 10) : 0;
+        }).filter(n => n > 0 && n < 1000); // 1000 se kam wale normal pages hote hain
+        
+        if (counts.length > 0) {
+          return Math.min(...counts); // Sabse chhota wala usually total page count hota hai
+        }
+      }
+    } catch (e) {
+      console.error("Accurate page count failed, fallback to 1", e);
+    }
+    return 1;
+  };
 
   // Measure A4 width dynamically
   useEffect(() => {
@@ -71,21 +105,34 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
 
   // Initialize initial file into items list with proportional size
   useEffect(() => {
-    if (file && filePreviewUrl && items.length === 0) {
+    if (file && filePreviewUrl && items.length === 0 && currentCanvasWidth > 0) {
       const initialId = 'item-1';
+      const isPdfFile = file.type === 'application/pdf';
+
+      if (isPdfFile) {
+        countPdfPages(file).then((pages) => {
+          setTotalPages(pages);
+        });
+      } else {
+        setTotalPages(1);
+      }
+
       const initialItem: CanvasItemState = {
         id: initialId,
         file,
         url: filePreviewUrl,
         isImage: file.type.startsWith('image/'),
-        isPdf: file.type === 'application/pdf',
-        pos: { x: 20, y: 20 },
-        size: { width: 150, height: 100 },
+        isPdf: isPdfFile,
+        pos: { x: isPdfFile ? 0 : 20, y: isPdfFile ? 0 : 20 },
+        size: { 
+          width: isPdfFile ? currentCanvasWidth : 150, 
+          height: isPdfFile ? currentCanvasHeight : 100 
+        },
       };
       setItems([initialItem]);
       setActiveItemId(initialId);
     }
-  }, [file, filePreviewUrl, items.length, currentCanvasWidth, currentCanvasHeight, setItems, setActiveItemId]);
+  }, [file, filePreviewUrl, items.length, currentCanvasWidth, currentCanvasHeight, setItems, setActiveItemId, setTotalPages]);
 
   useEffect(() => {
     if (!file) router.replace(`/${cafeId}`);
@@ -156,8 +203,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     activeItemIdRef.current = null;
   };
 
-  // ── Button Actions ───────────────────────────────────────────────────────
-
   const handleScanCrop = () => {
     if (selectedItem?.isImage) {
       router.push(`/${cafeId}/crop`);
@@ -201,10 +246,20 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     image.src = selectedItem.url;
   };
 
-  const handleReplaceFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleReplaceFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
     if (nextFile && selectedItem) {
       const newUrl = URL.createObjectURL(nextFile);
+      const isPdfFile = nextFile.type === 'application/pdf';
+
+      // 👈 Nayi file replace hote hi uska exact page count turant calculate karein
+      if (isPdfFile) {
+        const pages = await countPdfPages(nextFile);
+        setTotalPages(pages);
+      } else {
+        setTotalPages(1);
+      }
+
       setItems((prev) =>
         prev.map((it) =>
           it.id === selectedItem.id
@@ -213,7 +268,13 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
                 file: nextFile,
                 url: newUrl,
                 isImage: nextFile.type.startsWith('image/'),
-                isPdf: nextFile.type === 'application/pdf',
+                isPdf: isPdfFile,
+                // Size ko bhi naye file ke hisaab se reset kar dein
+                size: { 
+                  width: isPdfFile ? currentCanvasWidth : 150, 
+                  height: isPdfFile ? currentCanvasHeight : 100 
+                },
+                pos: { x: isPdfFile ? 0 : 20, y: isPdfFile ? 0 : 20 }
               }
             : it
         )
@@ -261,12 +322,10 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
   const handleNextStep = async () => {
     setIsUploading(true);
     try {
-      setItems(items);
       router.push(`/${cafeId}/options`);
     } catch (err: any) {
       console.error('Preview navigation Error:', err);
       alert(err.message || 'Something went wrong. Please try again.');
-    } finally {
       setIsUploading(false);
     }
   };
@@ -301,13 +360,14 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
                 <div
                   key={item.id}
                   className={`${styles.draggable} ${
-                    isSelected ? styles.selectedDraggable : ''
+                    isSelected && !item.isPdf ? styles.selectedDraggable : ''
                   }`}
                   style={{
                     left: `${(item.pos.x / currentCanvasWidth) * 100}%`,
                     top: `${(item.pos.y / currentCanvasHeight) * 100}%`,
                     width: `${(item.size.width / currentCanvasWidth) * 100}%`,
                     height: `${(item.size.height / currentCanvasHeight) * 100}%`,
+                    border: item.isPdf ? 'none' : undefined,
                   }}
                   onPointerDown={(e) => handlePointerDown(item.id, 'drag', e)}
                 >
@@ -322,14 +382,29 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
                   )}
 
                   {item.isPdf && (
-                    <div className={styles.pdfPlaceholder}>
-                      <FileText size={24} />
-                      <p>PDF Document</p>
+                    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#ffffff' }}>
+                      <div style={{ 
+                        position: 'absolute', 
+                        top: '-5px',    
+                        left: '-5px',   
+                        bottom: '-5px', 
+                        right: '-25px'  
+                      }}>
+                        <object
+                          data={`${item.url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                          type="application/pdf"
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            border: 'none',
+                            pointerEvents: 'auto',
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
 
-                  {/* Drag & Resize Handle */}
-                  {isSelected && (
+                  {isSelected && !item.isPdf && (
                     <>
                       <div className={styles.dragHint}>⠿ drag</div>
                       <div
@@ -342,7 +417,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
               );
             })}
 
-            {/* Corner Crop Marks */}
             <span className={`${styles.corner} ${styles.cornerTL}`} />
             <span className={`${styles.corner} ${styles.cornerTR}`} />
             <span className={`${styles.corner} ${styles.cornerBL}`} />
@@ -351,7 +425,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
         </div>
       </div>
 
-      {/* Info Card */}
       {selectedItem && (
         <Card className={styles.fileInfoCard}>
           <div className={styles.fileInfo}>
@@ -364,7 +437,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
         </Card>
       )}
 
-      {/* Action Controls */}
       <div className={styles.actionGrid}>
         {selectedItem?.isImage && (
           <Button variant="secondary" onClick={handleScanCrop} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
@@ -382,16 +454,18 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
           <FileUp size={16} /> Replace File
         </Button>
 
-        <Button variant="secondary" onClick={() => addImageInputRef.current?.click()} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-          <PlusCircle size={16} /> Add More
-        </Button>
+        {/* 👈 Sirf tabhi dikhega jab item PDF nahi hoga (yani Image hogi) */}
+        {!selectedItem?.isPdf && (
+          <Button variant="secondary" onClick={() => addImageInputRef.current?.click()} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+            <PlusCircle size={16} /> Add More
+          </Button>
+        )}
 
-        <Button variant="danger" onClick={handleDelete} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center', gridColumn: selectedItem?.isImage ? 'span 2' : 'span 2' }}>
+        <Button variant="danger" onClick={handleDelete} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center', gridColumn: 'span 2' }}>
           <Trash2 size={16} /> Delete Item
         </Button>
       </div>
 
-      {/* Hidden Inputs */}
       <input
         ref={replaceInputRef}
         type="file"
@@ -410,7 +484,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
       <Button
         variant="ghost"
         fullWidth
-        onClick={() => router.push(`/${cafeId}`)}
+        onClick={() => router.replace(`/${cafeId}`)}
         className={styles.backButton}
         disabled={isUploading}
         style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}

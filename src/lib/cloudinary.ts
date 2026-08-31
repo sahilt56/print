@@ -67,6 +67,7 @@ export async function uploadDocument(
         folder,
         type: "private",
         resource_type: "auto",
+        timeout: 120000,
         context: {
           uploadedAt: new Date().toISOString(),
         },

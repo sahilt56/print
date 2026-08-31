@@ -1,3 +1,4 @@
+export const maxDuration = 60;
 import { NextRequest } from 'next/server';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     const isMultipart = contentType.includes('multipart/form-data');
 
     let body: Record<string, any> = {};
-    let fileEntries: File[] = [];
+    const fileEntries: File[] = [];
 
     if (isMultipart) {
       const formData = await request.formData();

@@ -12,7 +12,6 @@ interface CafeDetails {
   logoUrl?: string | null;
 }
 
-// Image compression helper function to prevent mobile low memory crashes
 async function compressImage(file: File): Promise<File> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -74,6 +73,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   const { cafeId } = React.use(params);
   const [cafeData, setCafeData] = useState<CafeDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string>(''); // 👈 Custom error state UI ke liye
 
   useEffect(() => {
     let isMounted = true;
@@ -101,25 +101,43 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      if (selectedFile.type.startsWith('image/')) {
-        try {
-          const compressedFile = await compressImage(selectedFile);
-          setFile(compressedFile);
-        } catch (err) {
-          console.error("Compression failed, using original", err);
-          setFile(selectedFile);
-        }
-      } else {
-        setFile(selectedFile);
-      }
-      router.push(`/${cafeId}/preview`);
+    if (!selectedFile) return;
+
+    // Purana error hata dein jab nayi file select ho
+    setError('');
+
+    // 1️⃣ Format Validation
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+    if (!allowedTypes.includes(selectedFile.type)) {
+      setError('❌ Invalid file format! Please choose only PDF, JPG, or PNG files. (Galat file format hai! Kripya sirf PDF, JPG ya PNG file select karein.)');      e.target.value = '';
+      return;
     }
+
+    // 2️⃣ Size Validation (10MB)
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (selectedFile.size > MAX_SIZE) {
+        setError('⚠️ File is too large! Please select a file under 10MB. (File ka size 10MB se bada hai! Kripya 10MB se kam size ki file chunein.)');      e.target.value = '';
+      return;
+    }
+
+    let finalFile = selectedFile;
+
+    if (finalFile.type.startsWith('image/')) {
+      try {
+        const compressedFile = await compressImage(finalFile);
+        finalFile = compressedFile;
+      } catch (err) {
+        // Fallback to original
+      }
+    }
+
+    setFile(finalFile);
+    router.push(`/${cafeId}/preview`);
+    e.target.value = '';
   };
   
   return (
     <div className={styles.heroContainer}>
-      {/* Background Hero Banner */}
       {cafeData?.logoUrl && (
         <div className={styles.bgImageWrapper}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -132,10 +150,8 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
         </div>
       )}
 
-      {/* Main Content Centered */}
       <div className={styles.contentWrapper}>
         <div className={styles.header}>
-          {/* Displays Logo on top of Card if uploaded */}
           {cafeData?.logoUrl && (
             <div style={{ marginBottom: '16px', textAlign: 'center' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -155,6 +171,23 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
           <p className={styles.subtitle}>Upload &bull; Crop &bull; Print</p>
         </div>
 
+        {/* 👇 Naya Custom Error Box UI (Bina Chrome ke pop-up ke) */}
+        {error && (
+          <div style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            color: '#ef4444',
+            padding: '0.75rem 1rem',
+            borderRadius: '8px',
+            fontSize: '0.9rem',
+            textAlign: 'center',
+            marginBottom: '1rem',
+            fontWeight: 500
+          }}>
+            {error}
+          </div>
+        )}
+
         <div className={styles.actions}>
           <div className={styles.uploadContainer}>
             <input 
@@ -168,7 +201,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               variant="primary" 
               size="large" 
               fullWidth 
-              onClick={() => document.getElementById('upload-doc')?.click()}
+              onClick={() => { setError(''); document.getElementById('upload-doc')?.click(); }}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
               <UploadCloud size={18} /> Upload Document
@@ -188,7 +221,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               variant="secondary" 
               size="large" 
               fullWidth
-              onClick={() => document.getElementById('take-photo')?.click()}
+              onClick={() => { setError(''); document.getElementById('take-photo')?.click(); }}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
               <Camera size={18} /> Take Photo
@@ -197,7 +230,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
         </div>
 
         <div className={styles.footer}>
-          <p>Supported: JPG, PNG (Max 10MB)</p>
+          <p>Supported: PDF, JPG, PNG (Max 10MB)</p>
         </div>
       </div>
     </div>

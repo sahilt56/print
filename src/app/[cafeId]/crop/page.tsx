@@ -168,11 +168,14 @@ export default function CropPage({ params }: { params: Promise<{ cafeId: string 
       </div>
 
       <div ref={stageRef} className={styles.editor}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={imageRef}
           src={targetPreviewUrl}
           alt="Document to straighten"
           className={styles.imageToCrop}
+          loading="eager"
+          fetchPriority="high"
           onLoad={() => setCorners(DEFAULT_CORNERS)}
         />
         <svg className={styles.overlay} viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -202,10 +205,12 @@ export default function CropPage({ params }: { params: Promise<{ cafeId: string 
           <p>Yahi image print ke liye save hogi.</p>
         </div>
         {previewUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={previewUrl}
             alt="Perspective-corrected document preview"
             className={styles.correctedPreview}
+            loading="lazy"
           />
         ) : (
           <div className={styles.previewPlaceholder}>

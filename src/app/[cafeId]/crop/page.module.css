@@ -30,6 +30,7 @@
   border: 1px solid var(--border, #cbd5e1);
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
   touch-action: none;
+  content-visibility: auto;
 }
 
 .imageToCrop {

@@ -31,10 +31,13 @@
   border-radius: 12px;
   box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
   overflow: hidden;
+  -webkit-user-select: none;
   user-select: none;
   touch-action: none;
 }
-
+iframe::-webkit-scrollbar {
+  display: none;
+}
 .a4Inner {
   position: absolute;
   inset: 0;
@@ -67,6 +70,9 @@
   border: 2px dashed transparent;
   border-radius: 6px;
   transition: border-color 0.15s ease;
+  overflow: hidden;
+  background: #ffffff;
+  
 }
 
 .draggable:active {
