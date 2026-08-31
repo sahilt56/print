@@ -21,14 +21,7 @@ export const authOptions: NextAuthOptions = {
         const username = credentials.username.trim().toLowerCase();
         const superAdminId = process.env.SUPER_ADMIN_USER_ID?.trim().toLowerCase();
         const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD?.trim();
-        console.log("--- DEBUG START ---");
-        console.log("1. Entered Username:", username);
-        console.log("2. Env Admin ID:", superAdminId);
-        console.log("3. Entered Password:", credentials.password);
-        console.log("4. Env Admin Hash:", superAdminPassword);
-        console.log("--- DEBUG END ---");
-        // hii
-        // 1. Super Admin Authentication Check
+
         if (superAdminId && superAdminPassword && username === superAdminId) {
           let isValid = false;
 
