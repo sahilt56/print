@@ -1,67 +1,98 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import Razorpay from 'razorpay';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import PrintJob from '@/models/PrintJob';
+import { apiError, apiSuccess, internalError, isRequiredString } from '@/lib/api-utils';
 
+/**
+ * Create Razorpay Order Route
+ * 
+ * Security measures:
+ * - Validates job exists and is in valid state
+ * - Verifies amount is > 0
+ * - Prevents creating orders for already paid jobs
+ * - Returns keyId for frontend (never returns secret)
+ */
 export async function POST(request: NextRequest) {
   try {
-    const { jobId } = await request.json();
+    await dbConnect();
 
-    if (typeof jobId !== 'string') {
-      return NextResponse.json({ error: 'Missing jobId' }, { status: 400 });
+    const body = await request.json();
+    const { jobId } = body;
+
+    // 1. Validate input
+    if (!isRequiredString(jobId)) {
+      return apiError('Missing jobId', 400);
     }
 
+    // 2. Verify Razorpay configuration
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
     if (!keyId || !keySecret) {
-      console.error('Razorpay credentials are not configured');
-      return NextResponse.json({ error: 'Online payments are temporarily unavailable' }, { status: 503 });
+      console.error('[Payment Create] Razorpay credentials not configured');
+      return apiError('Online payments are temporarily unavailable', 503);
     }
 
-    const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+    // 3. Find job
+    const job = await PrintJob.findById(jobId);
+    if (!job) {
+      return apiError('Job not found', 404);
+    }
 
-    const job = await prisma.printJob.findUnique({
-      where: { id: jobId }
+    // 4. Validate job state
+    if (job.paymentStatus === 'paid') {
+      return apiError('Job already paid', 400);
+    }
+
+    if (job.paymentMethod !== 'online') {
+      return apiError('Job is not set for online payment', 400);
+    }
+
+    if (job.totalAmount <= 0) {
+      return apiError('Invalid job amount', 400);
+    }
+
+    // 5. Create Razorpay order
+    const razorpay = new Razorpay({ 
+      key_id: keyId, 
+      key_secret: keySecret,
     });
 
-    if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
-    }
-
-    if (job.paymentStatus === 'paid' || job.paymentMethod !== 'online' || job.totalAmount <= 0) {
-      return NextResponse.json({ error: 'Job already paid' }, { status: 400 });
-    }
-
     // Razorpay amounts are in paisa (amount * 100)
+    const amountInPaisa = Math.round(job.totalAmount * 100);
+    
     const options = {
-      amount: Math.round(job.totalAmount * 100),
+      amount: amountInPaisa,
       currency: 'INR',
       receipt: `receipt_${job.jobNumber}`,
       notes: {
-        jobId: job.id,
+        jobId: job._id.toString(),
         cafeId: job.cafeId,
-      }
+        jobNumber: job.jobNumber,
+      },
     };
 
     const order = await razorpay.orders.create(options);
 
-    // Update the job with the generated order ID
-    await prisma.printJob.update({
-      where: { id: job.id },
-      data: { 
-        paymentMethod: 'online',
-        paymentGatewayOrderId: order.id 
-      }
+    // 6. Update job with order ID
+    job.paymentGatewayOrderId = order.id;
+    await job.save();
+
+    console.info('[Payment Create] Order created', {
+      jobId,
+      jobNumber: job.jobNumber,
+      orderId: order.id,
+      amount: job.totalAmount,
     });
 
-    return NextResponse.json({ 
+    return apiSuccess({
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      keyId
+      keyId, // Safe to return - not the secret
     });
 
   } catch (error) {
-    console.error('Razorpay Create Order Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return internalError(error, 'Payment Create Order');
   }
 }

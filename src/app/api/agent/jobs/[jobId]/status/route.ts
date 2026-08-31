@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import dbConnect from '@/lib/dbConnect';
 import PrintJob from '@/models/PrintJob';
 import Cafe from '@/models/Cafe';
@@ -26,9 +27,20 @@ export async function POST(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    const cafe = await Cafe.findOne({
-      $or: [{ qrCode: job.cafeId }, { loginId: job.cafeId }, { _id: job.cafeId }],
-    }).lean();
+    const lookup: {
+      $or: Array<{ qrCode?: string; loginId?: string; _id?: string }>;
+    } = {
+      $or: [
+        { qrCode: job.cafeId },
+        { loginId: job.cafeId },
+      ],
+    };
+
+    if (mongoose.Types.ObjectId.isValid(job.cafeId)) {
+      lookup.$or.push({ _id: job.cafeId });
+    }
+
+    const cafe = await Cafe.findOne(lookup).lean();
 
     const dbToken = String((cafe as any)?.agentSecretKey || '').trim();
     if (!cafe || dbToken !== token) {

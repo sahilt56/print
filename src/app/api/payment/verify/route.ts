@@ -1,55 +1,111 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import crypto from 'crypto';
-import { prisma } from '@/lib/prisma';
+import dbConnect from '@/lib/dbConnect';
+import PrintJob from '@/models/PrintJob';
+import { apiError, apiSuccess, internalError } from '@/lib/api-utils';
+import { timingSafeCompare } from '@/lib/security';
 
+/**
+ * Payment Verification Route
+ * 
+ * Security measures:
+ * - Verifies Razorpay signature using timing-safe comparison
+ * - Idempotent: duplicate callbacks won't create duplicate payments
+ * - Uses atomic MongoDB operation (findOneAndUpdate with conditions)
+ * - Validates payment status before marking paid
+ */
 export async function POST(request: NextRequest) {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, jobId } = await request.json();
+    await dbConnect();
 
-    if (![razorpay_order_id, razorpay_payment_id, razorpay_signature, jobId].every((value) => typeof value === 'string' && value.length > 0)) {
-      return NextResponse.json({ error: 'Missing payment details' }, { status: 400 });
+    const body = await request.json();
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, jobId } = body;
+
+    // 1. Validate input
+    if (
+      typeof razorpay_order_id !== 'string' || razorpay_order_id.trim().length === 0 ||
+      typeof razorpay_payment_id !== 'string' || razorpay_payment_id.trim().length === 0 ||
+      typeof razorpay_signature !== 'string' || razorpay_signature.trim().length === 0 ||
+      typeof jobId !== 'string' || jobId.trim().length === 0
+    ) {
+      return apiError('Missing required payment details', 400);
     }
 
+    // 2. Verify Razorpay credentials are configured
     const secret = process.env.RAZORPAY_KEY_SECRET;
     if (!secret) {
-      console.error('Razorpay credentials are not configured');
-      return NextResponse.json({ error: 'Online payments are temporarily unavailable' }, { status: 503 });
+      console.error('[Payment Verify] Razorpay credentials not configured');
+      return apiError('Online payments are temporarily unavailable', 503);
     }
-    
-    // Verify signature
+
+    // 3. Verify Razorpay signature (timing-safe)
     const generatedSignature = crypto
       .createHmac('sha256', secret)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest('hex');
 
-    const receivedSignature = Buffer.from(razorpay_signature, 'utf8');
-    const expectedSignature = Buffer.from(generatedSignature, 'utf8');
-    if (receivedSignature.length !== expectedSignature.length || !crypto.timingSafeEqual(receivedSignature, expectedSignature)) {
-      return NextResponse.json({ error: 'Invalid payment signature' }, { status: 400 });
+    if (!timingSafeCompare(razorpay_signature, generatedSignature)) {
+      console.warn('[Payment Verify] Invalid signature attempt', { jobId });
+      return apiError('Invalid payment signature', 400);
     }
 
-    const updatedJob = await prisma.printJob.updateMany({
-      where: {
-        id: jobId,
-        paymentMethod: 'online',
-        paymentStatus: 'pending',
-        paymentGatewayOrderId: razorpay_order_id,
-      },
-      data: {
-        paymentStatus: 'paid',
-        printStatus: 'pending', // Print Agent will now pick it up
-        paymentGatewayPaymentId: razorpay_payment_id
-      }
+    // 4. Find job and verify it exists and is in valid state
+    const job = await PrintJob.findOne({
+      _id: jobId,
+      paymentMethod: 'online',
+      paymentStatus: 'pending', // Only process pending payments
+      paymentGatewayOrderId: razorpay_order_id,
     });
 
-    if (updatedJob.count !== 1) {
-      return NextResponse.json({ error: 'Payment does not match this job or has already been processed' }, { status: 400 });
+    if (!job) {
+      return apiError(
+        'Job not found or already processed',
+        400
+      );
     }
 
-    return NextResponse.json({ success: true });
+    // 5. Verify amount (critical for payment integrity)
+    if (job.totalAmount <= 0) {
+      return apiError('Invalid job amount', 400);
+    }
+
+    // 6. Update job status atomically
+    // Using findOneAndUpdate with conditions to ensure idempotency
+    const updatedJob = await PrintJob.findOneAndUpdate(
+      {
+        _id: jobId,
+        paymentMethod: 'online',
+        paymentStatus: 'pending', // Only update if still pending
+        paymentGatewayOrderId: razorpay_order_id,
+      },
+      {
+        $set: {
+          paymentStatus: 'paid',
+          paymentGatewayPaymentId: razorpay_payment_id,
+          printStatus: 'pending', // Ready for agent to pick up
+          updatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!updatedJob) {
+      // Job was already processed or is in different state
+      return apiError('Payment already processed or job state changed', 400);
+    }
+
+    console.info('[Payment Verify] Payment verified successfully', {
+      jobId,
+      jobNumber: job.jobNumber,
+      amount: job.totalAmount,
+    });
+
+    return apiSuccess({ 
+      success: true,
+      message: 'Payment verified and job is ready for printing'
+    });
 
   } catch (error) {
-    console.error('Razorpay Verify Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return internalError(error, 'Payment Verification');
   }
 }

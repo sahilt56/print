@@ -14,6 +14,7 @@ import PrintJob from '@/models/PrintJob';
 import { redirect } from 'next/navigation';
 
 const STATUS_LABELS: Record<string, string> = {
+  queued: 'Queued',
   pending: 'Waiting',
   printing: 'Printing...',
   completed: 'Completed ✓',
@@ -87,8 +88,8 @@ export default async function AdminDashboard() {
     createdAt: j.createdAt || new Date(),
   }));
 
-  const pending = jobs.filter(j => j.printStatus === 'pending' && j.paymentStatus !== 'paid');
-  const paid = jobs.filter(j => j.printStatus === 'pending' && j.paymentStatus === 'paid');
+  const pending = jobs.filter(j => ['queued', 'pending'].includes(j.printStatus) && j.paymentStatus !== 'paid');
+  const paid = jobs.filter(j => ['queued', 'pending'].includes(j.printStatus) && j.paymentStatus === 'paid');
   const inProgress = jobs.filter(j => j.printStatus === 'printing');
   const done = jobs.filter(j => ['completed', 'cancelled', 'failed'].includes(j.printStatus));
 

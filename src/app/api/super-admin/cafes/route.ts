@@ -38,11 +38,11 @@ export async function POST(request: NextRequest) {
     const newCafe = await Cafe.create({
       name: cafeName.trim(),
       ownerName: cafeName.trim(),
-      loginId: cleanLoginId, // Only saving clean loginId
+      loginId: cleanLoginId,
       password: hashedPassword,
       qrCode,
       agentSecretKey,
-      pricingConfig: JSON.stringify({ bw: 2, color: 10 }),
+      pricingConfig: { bw: 2, color: 10 },
     });
 
     return NextResponse.json({
