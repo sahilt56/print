@@ -10,6 +10,16 @@ import { DownloadConfigButton } from './DownloadConfigButton';
 import dbConnect from '@/lib/dbConnect';
 import Cafe from '@/models/Cafe';
 import mongoose from 'mongoose';
+import Link from 'next/link';
+import { 
+  QrCode, 
+  Sliders, 
+  Terminal, 
+  Key, 
+  ArrowLeft, 
+  Download, 
+  ExternalLink 
+} from 'lucide-react';
 
 export default async function SettingsPage() {
   const session = await getServerSession(authOptions);
@@ -20,21 +30,27 @@ export default async function SettingsPage() {
 
   await dbConnect();
 
-  const userObj = session.user as any;
+  const userObj = session.user as { cafeId?: string; qrCode?: string; id?: string; loginId?: string; email?: string };
   const cafeId = userObj?.cafeId || userObj?.qrCode;
-  const userId = userObj?.id;
+  const userId = userObj?.id || '';
   const loginId = userObj?.loginId || userObj?.email;
 
   const isObjectId = mongoose.Types.ObjectId.isValid(userId);
 
-  // Dynamic Lookup: Search Mongo DB using cafeId/qrCode, MongoDB _id, or loginId
   const cafe = await Cafe.findOne({
     $or: [
       ...(cafeId ? [{ qrCode: cafeId }] : []),
       ...(isObjectId ? [{ _id: userId }] : []),
       ...(loginId ? [{ loginId: loginId }] : []),
     ],
-  }).lean();
+  }).lean() as {
+    qrCode?: string;
+    loginId?: string;
+    name?: string;
+    pricingConfig?: string | { bw: number; color: number };
+    logoUrl?: string;
+    agentSecretKey?: string;
+  } | null;
 
   if (!cafe) {
     return (
@@ -44,37 +60,34 @@ export default async function SettingsPage() {
           <p style={{ marginTop: '0.5rem', color: '#666' }}>
             Please log out and log back in to refresh your admin session.
           </p>
-          <a
-            href="/login"
-            style={{
-              display: 'inline-block',
-              marginTop: '1rem',
-              padding: '0.5rem 1rem',
-              background: '#2563eb',
-              color: '#fff',
-              borderRadius: '6px',
-              textDecoration: 'none',
-            }}
-          >
-            Go to Login
-          </a>
+          <Link
+  href="/login"
+  style={{
+    display: 'inline-block',
+    marginTop: '1rem',
+    padding: '0.5rem 1rem',
+    background: '#2563eb',
+    color: '#fff',
+    borderRadius: '6px',
+    textDecoration: 'none',
+  }}
+>
+  Go to Login
+</Link>
         </div>
       </Layout>
     );
   }
 
-  // Build customer URL dynamically
   const headersList = await headers();
   const host = headersList.get('host') || 'localhost:3000';
   const protocol = host.includes('localhost') ? 'http' : 'https';
-  // Fallback link prioritizing qrCode or loginId
   const customerUrl = `${protocol}://${host}/${cafe.qrCode || cafe.loginId}`;
 
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(
     customerUrl
   )}`;
 
-  // Safe pricing configuration parsing
   let pricingConfig = { bw: 2, color: 10 };
   if (cafe.pricingConfig) {
     try {
@@ -83,7 +96,7 @@ export default async function SettingsPage() {
           ? JSON.parse(cafe.pricingConfig)
           : cafe.pricingConfig;
     } catch (e) {
-      /* fallback default pricing */
+      console.error(e);
     }
   }
 
@@ -96,7 +109,9 @@ export default async function SettingsPage() {
 
       {/* ── QR Code Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>📱 Your Cafe QR Code</h2>
+        <h2 className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <QrCode size={20} /> Your Cafe QR Code
+        </h2>
         <p className={styles.description}>
           Print this QR code and place it at your counter. Customers scan it to upload files and submit print jobs.
         </p>
@@ -126,8 +141,9 @@ export default async function SettingsPage() {
                 target="_blank"
                 rel="noreferrer"
                 className={styles.downloadQrBtn}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                ⬇️ Download QR Code (PNG)
+                <Download size={15} /> Download QR Code (PNG)
               </a>
             </div>
           </div>
@@ -136,20 +152,24 @@ export default async function SettingsPage() {
 
       {/* ── Pricing & Branding Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>Cafe Branding &amp; Pricing Configuration</h2>
+        <h2 className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Sliders size={20} /> Cafe Branding &amp; Pricing Configuration
+        </h2>
         <p className={styles.description}>
           Upload your cafe logo and set per-page printing prices.
         </p>
         <SettingsForm
           initialBw={pricingConfig.bw}
           initialColor={pricingConfig.color}
-          initialLogoUrl={(cafe as any).logoUrl || null}
+          initialLogoUrl={cafe.logoUrl || null}
         />
       </Card>
 
       {/* ── Print Agent Setup Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>Print Agent Setup</h2>
+        <h2 className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Terminal size={20} /> Print Agent Setup
+        </h2>
         <p className={styles.description}>
           Download the Print Agent to connect your cafe computer to the cloud. Place the{' '}
           <code>config.json</code> in the same folder as the agent and run it.
@@ -171,7 +191,9 @@ export default async function SettingsPage() {
 
       {/* ── Agent Key Card ── */}
       <Card className={styles.card}>
-        <h2 className={styles.sectionTitle}>🔑 Agent Key</h2>
+        <h2 className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Key size={20} /> Agent Key
+        </h2>
         <p className={styles.description}>
           This is the secret key used by your Local Print Agent. Do not share this with anyone.
         </p>
@@ -181,9 +203,13 @@ export default async function SettingsPage() {
       </Card>
 
       <div className={styles.footer}>
-        <a href="/admin" className={styles.backLink}>
-          &larr; Back to Dashboard
-        </a>
+        <Link
+  href="/admin"
+  className={styles.backLink}
+  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+>
+  <ArrowLeft size={16} /> Back to Dashboard
+</Link>
       </div>
     </Layout>
   );

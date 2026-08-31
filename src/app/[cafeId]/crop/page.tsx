@@ -6,6 +6,7 @@ import { Layout } from '@/components/ui/Layout';
 import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
 import styles from './page.module.css';
+import { X, Check, ScanLine } from 'lucide-react';
 
 type Point = { x: number; y: number };
 
@@ -165,6 +166,7 @@ export default function CropPage({ params }: { params: Promise<{ cafeId: string 
         <h1 className={styles.title}>Scan &amp; Straighten</h1>
         <p>Document ke 4 corners ko drag karke lines ke saath set karo.</p>
       </div>
+
       <div ref={stageRef} className={styles.editor}>
         <img
           ref={imageRef}
@@ -183,7 +185,7 @@ export default function CropPage({ params }: { params: Promise<{ cafeId: string 
               key={index}
               cx={point.x}
               cy={point.y}
-              r="2.7"
+              r="3.2"
               className={styles.handle}
               onPointerDown={(event) => {
                 event.preventDefault();
@@ -193,6 +195,7 @@ export default function CropPage({ params }: { params: Promise<{ cafeId: string 
           ))}
         </svg>
       </div>
+
       <section className={styles.previewSection}>
         <div>
           <h2>Corrected Preview</h2>
@@ -205,15 +208,19 @@ export default function CropPage({ params }: { params: Promise<{ cafeId: string 
             className={styles.correctedPreview}
           />
         ) : (
-          <div className={styles.previewPlaceholder}>Preview ban raha hai…</div>
+          <div className={styles.previewPlaceholder}>
+            <ScanLine size={24} className="animate-pulse" style={{ marginBottom: '6px' }} />
+            Preview ban raha hai…
+          </div>
         )}
       </section>
+
       <div className={styles.actionGrid}>
-        <Button variant="secondary" onClick={() => router.push(`/${cafeId}/preview`)}>
-          Cancel
+        <Button variant="secondary" onClick={() => router.push(`/${cafeId}/preview`)} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+          <X size={16} /> Cancel
         </Button>
-        <Button variant="primary" onClick={applyPerspective} disabled={isApplying}>
-          {isApplying ? 'Saving…' : 'Use This Scan'}
+        <Button variant="primary" onClick={applyPerspective} disabled={isApplying} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+          <Check size={16} /> {isApplying ? 'Saving…' : 'Use This Scan'}
         </Button>
       </div>
     </Layout>

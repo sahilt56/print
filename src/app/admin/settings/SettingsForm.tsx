@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import styles from './page.module.css';
+import { Upload, Save, Image as ImageIcon, IndianRupee } from 'lucide-react';
 
 interface SettingsFormProps {
   initialBw: number;
@@ -18,7 +19,6 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  // Compress image to small Base64 string to guarantee database saving
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -67,8 +67,12 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
       }
 
       setMessage('Settings & Branding updated successfully!');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -77,7 +81,9 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
   return (
     <form onSubmit={handleSubmit} className={styles.form}>
       <div className={styles.inputGroup}>
-        <label htmlFor="logoUpload">Cafe Banner / Logo Image</label>
+        <label htmlFor="logoUpload" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <ImageIcon size={16} /> Cafe Banner / Logo Image
+        </label>
         {logoUrl && (
           <div className={styles.logoPreviewWrapper}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -95,7 +101,9 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
       </div>
 
       <div className={styles.inputGroup}>
-        <label htmlFor="bwPrice">Black &amp; White Price (₹)</label>
+        <label htmlFor="bwPrice" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <IndianRupee size={16} /> Black &amp; White Price (₹)
+        </label>
         <input
           id="bwPrice"
           type="number"
@@ -109,7 +117,9 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
       </div>
 
       <div className={styles.inputGroup}>
-        <label htmlFor="colorPrice">Color Price (₹)</label>
+        <label htmlFor="colorPrice" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <IndianRupee size={16} /> Color Price (₹)
+        </label>
         <input
           id="colorPrice"
           type="number"
@@ -127,7 +137,7 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
 
       <div className={styles.submitContainer}>
         <Button variant="primary" type="submit" disabled={isLoading}>
-          {isLoading ? 'Saving...' : 'Save All Settings'}
+          <Save size={16} /> {isLoading ? 'Saving...' : 'Save All Settings'}
         </Button>
       </div>
     </form>

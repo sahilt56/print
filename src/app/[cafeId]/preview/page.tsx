@@ -7,6 +7,16 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { usePrintJob, CanvasItemState } from '@/context/PrintJobContext';
 import styles from './page.module.css';
+import { 
+  Crop, 
+  RotateCw, 
+  FileUp, 
+  PlusCircle, 
+  Trash2, 
+  ArrowLeft, 
+  ArrowRight, 
+  FileText 
+} from 'lucide-react';
 
 const A4_RATIO = 297 / 210; // 1.4142
 
@@ -56,7 +66,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     return () => observer.disconnect();
   }, []);
 
-  const currentCanvasWidth = a4Width > 0 ? a4Width : 380;
+  const currentCanvasWidth = a4Width > 0 ? a4Width : 360;
   const currentCanvasHeight = currentCanvasWidth * A4_RATIO;
 
   // Initialize initial file into items list with proportional size
@@ -69,9 +79,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
         url: filePreviewUrl,
         isImage: file.type.startsWith('image/'),
         isPdf: file.type === 'application/pdf',
-        // Top-left initial relative position
         pos: { x: 20, y: 20 },
-        // Proportional initial card dimensions
         size: { width: 150, height: 100 },
       };
       setItems([initialItem]);
@@ -253,8 +261,6 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
   const handleNextStep = async () => {
     setIsUploading(true);
     try {
-      // Keep preview-local blob URLs as-is. Final upload happens only when the user submits the print job.
-      // This avoids uploading the same file twice to Cloudinary.
       setItems(items);
       router.push(`/${cafeId}/options`);
     } catch (err: any) {
@@ -317,6 +323,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
 
                   {item.isPdf && (
                     <div className={styles.pdfPlaceholder}>
+                      <FileText size={24} />
                       <p>PDF Document</p>
                     </div>
                   )}
@@ -360,27 +367,27 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
       {/* Action Controls */}
       <div className={styles.actionGrid}>
         {selectedItem?.isImage && (
-          <Button variant="secondary" onClick={handleScanCrop} disabled={isUploading}>
-             Scan &amp; Crop
+          <Button variant="secondary" onClick={handleScanCrop} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+            <Crop size={16} /> Scan &amp; Crop
           </Button>
         )}
 
         {selectedItem?.isImage && (
-          <Button variant="secondary" onClick={rotateSelectedImage} disabled={isRotating || isUploading}>
-             {isRotating ? 'Rotating…' : 'Rotate'}
+          <Button variant="secondary" onClick={rotateSelectedImage} disabled={isRotating || isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+            <RotateCw size={16} /> {isRotating ? 'Rotating…' : 'Rotate'}
           </Button>
         )}
 
-        <Button variant="secondary" onClick={() => replaceInputRef.current?.click()} disabled={isUploading}>
-           Use Another Image
+        <Button variant="secondary" onClick={() => replaceInputRef.current?.click()} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+          <FileUp size={16} /> Replace File
         </Button>
 
-        <Button variant="secondary" onClick={() => addImageInputRef.current?.click()} disabled={isUploading}>
-           Add Another Image
+        <Button variant="secondary" onClick={() => addImageInputRef.current?.click()} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+          <PlusCircle size={16} /> Add More
         </Button>
 
-        <Button variant="danger" onClick={handleDelete} disabled={isUploading}>
-          Delete
+        <Button variant="danger" onClick={handleDelete} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center', gridColumn: selectedItem?.isImage ? 'span 2' : 'span 2' }}>
+          <Trash2 size={16} /> Delete Item
         </Button>
       </div>
 
@@ -406,13 +413,14 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
         onClick={() => router.push(`/${cafeId}`)}
         className={styles.backButton}
         disabled={isUploading}
+        style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}
       >
-        ← Back
+        <ArrowLeft size={16} /> Back
       </Button>
 
       <div className={styles.footer}>
-        <Button variant="primary" size="large" fullWidth onClick={handleNextStep} disabled={isUploading}>
-          {isUploading ? 'Uploading Assets...' : 'Next Step →'}
+        <Button variant="primary" size="large" fullWidth onClick={handleNextStep} disabled={isUploading} style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+          {isUploading ? 'Preparing Assets...' : <>Next Step <ArrowRight size={18} /></>}
         </Button>
       </div>
     </Layout>

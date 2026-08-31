@@ -3,10 +3,10 @@
 import React from 'react';
 import { Button } from '@/components/ui/Button';
 import styles from './page.module.css';
+import { Download } from 'lucide-react';
 
 export function DownloadConfigButton() {
   const handleDownload = () => {
-    // Simple anchor click to trigger the download
     const link = document.createElement('a');
     link.href = '/api/admin/config';
     link.download = 'config.json';
@@ -18,7 +18,7 @@ export function DownloadConfigButton() {
   return (
     <div className={styles.buttonRow}>
       <Button variant="primary" onClick={handleDownload}>
-        ⬇️ Download config.json
+        <Download size={16} /> Download config.json
       </Button>
       <p className={styles.downloadNote}>
         This file contains your personal cafe credentials. Keep it safe.
