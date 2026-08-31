@@ -82,14 +82,22 @@ export async function GET(request: NextRequest) {
     }
 
     // 6. Build download URL
-    const resolveAssetUrl = (value: string | null | undefined, fallbackType?: string, fallbackResourceType: string = 'image') => {
+    const resolveAssetUrl = (
+      value: string | null | undefined,
+      fallbackType?: string,
+      fallbackResourceType?: string,
+      fallbackFormat?: string,
+      fallbackVersion?: number | string | null
+    ) => {
       if (!value) return null;
       if (value.startsWith('http://') || value.startsWith('https://')) return value;
 
       try {
         const fileType = fallbackType || 'image/png';
-        const resourceType = fileType.includes('pdf') ? 'raw' : fallbackResourceType;
-        return getCloudinaryUrl(value, fileType, resourceType, 300);
+        const resourceType = fallbackResourceType || (fileType.includes('pdf') ? 'raw' : 'image');
+        const format = fallbackFormat || fileType;
+        const version = fallbackVersion !== undefined && fallbackVersion !== null ? Number(fallbackVersion) : undefined;
+        return getCloudinaryUrl(value, format, resourceType, 300, version);
       } catch (error) {
         console.error('[Agent Jobs] Failed to generate download URL', { value, fallbackType });
         return null;
@@ -101,15 +109,21 @@ export async function GET(request: NextRequest) {
 
     try {
       if (job.cloudinaryPublicId) {
-        downloadUrl = resolveAssetUrl(job.cloudinaryPublicId, job.fileType || 'application/pdf', job.fileType?.includes('pdf') ? 'raw' : 'image');
+        downloadUrl = resolveAssetUrl(
+          job.cloudinaryPublicId,
+          job.cloudinaryFormat || job.fileType || 'application/pdf',
+          job.cloudinaryResourceType || (job.fileType?.includes('pdf') ? 'raw' : 'image'),
+          job.cloudinaryFormat || job.fileType || 'application/pdf',
+          job.cloudinaryVersion
+        );
       } else if (job.fileUrl) {
-        downloadUrl = resolveAssetUrl(job.fileUrl, job.fileType || 'application/pdf', job.fileType?.includes('pdf') ? 'raw' : 'image');
+        downloadUrl = resolveAssetUrl(job.fileUrl, job.fileType || 'application/pdf', job.cloudinaryResourceType || (job.fileType?.includes('pdf') ? 'raw' : 'image'), job.cloudinaryFormat || job.fileType || 'application/pdf', job.cloudinaryVersion);
       }
 
       if (Array.isArray(job.layout) && job.layout.length > 0) {
         normalizedLayout = job.layout.map((item: any) => {
           const itemCloudId = item.cloudinaryPublicId || item.fileUrl;
-          const itemUrl = resolveAssetUrl(itemCloudId, item.fileType || 'image/png', 'image');
+          const itemUrl = resolveAssetUrl(itemCloudId, item.fileType || 'image/png', item.cloudinaryResourceType || 'image', item.cloudinaryFormat || item.fileType || 'image/png', item.cloudinaryVersion);
           return {
             ...item.toObject ? item.toObject() : item,
             fileUrl: itemUrl || item.fileUrl,

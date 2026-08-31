@@ -3,12 +3,14 @@ import mongoose, { Schema, model, models } from 'mongoose';
 const PrintJobSchema = new Schema(
   {
     jobNumber: { type: String, required: true, unique: true },
-    cafeId: { type: String, required: true, index: true },
+    cafeId: { type: Schema.Types.ObjectId, ref: 'Cafe', required: true, index: true },
     fileName: { type: String, default: 'Deleted for Privacy' },
     fileType: { type: String, required: true },
     fileUrl: { type: String, default: null },
     cloudinaryPublicId: { type: String, default: null }, // Cloudinary asset identifier
     cloudinaryResourceType: { type: String, default: null },
+    cloudinaryFormat: { type: String, default: null },
+    cloudinaryVersion: { type: Number, default: null },
     layout: [
       {
         id: String,

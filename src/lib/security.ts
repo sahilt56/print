@@ -120,45 +120,43 @@ export async function verifyCafeAdminRole(role: string | null): Promise<boolean>
 }
 
 /**
- * Verify agent authentication via bearer token
+ * Verify agent authentication via bearer token.
+ * The client-supplied cafe identifier is treated as a hint only and never trusted
+ * as the source of truth; the server resolves the authorized cafe from the token.
  */
 export async function verifyAgentToken(
   token: string | null,
-  cafeId: string
+  cafeIdentifier?: string | null
 ): Promise<{ valid: boolean; cafeDoc?: any }> {
-  if (!token) return { valid: false };
+  if (!token || !token.trim()) return { valid: false };
 
+  const normalizedToken = token.trim();
   await dbConnect();
-  const cafe = await Cafe.findOne({
-    ...buildCafeLookupQuery(cafeId),
+
+  const candidateQuery = {
     isActive: true,
     isAgentActive: true,
-  });
+    ...(cafeIdentifier ? buildCafeLookupQuery(cafeIdentifier) : {}),
+  };
 
-  if (!cafe) return { valid: false };
+  const candidateCafes = await Cafe.find(candidateQuery).lean();
 
-  // Accept both legacy plain-text secrets and newer bcrypt-hashed secrets.
-  // This preserves compatibility for existing cafe records while keeping the
-  // newer hash verification path working.
-  const storedSecret = String(cafe.agentSecretKey || '');
+  for (const cafe of candidateCafes) {
+    const storedSecret = String(cafe.agentSecretKey || '');
+    if (!storedSecret) continue;
 
-  try {
-    const isPlainMatch = timingSafeCompare(token, storedSecret);
-    if (isPlainMatch) {
-      cafe.lastAgentSeen = new Date();
-      await cafe.save();
-      return { valid: true, cafeDoc: cafe };
+    try {
+      const isPlainMatch = timingSafeCompare(normalizedToken, storedSecret);
+      const isHashMatch = await verifyAgentSecret(normalizedToken, storedSecret);
+
+      if (isPlainMatch || isHashMatch) {
+        await Cafe.updateOne({ _id: cafe._id }, { $set: { lastAgentSeen: new Date() } });
+        return { valid: true, cafeDoc: cafe };
+      }
+    } catch {
+      // Invalid secret format or comparison error - token is invalid.
+      continue;
     }
-
-    const isHashMatch = await verifyAgentSecret(token, storedSecret);
-    if (isHashMatch) {
-      cafe.lastAgentSeen = new Date();
-      await cafe.save();
-      return { valid: true, cafeDoc: cafe };
-    }
-  } catch (error) {
-    // Invalid secret format or comparison error - token is invalid.
-    return { valid: false };
   }
 
   return { valid: false };

@@ -8,12 +8,7 @@ import { getAuthenticatedCafeId, verifyAgentToken } from '@/lib/security';
 import { getPrivateDownloadUrl as getCloudinaryUrl } from '@/lib/cloudinary';
 import { apiError, internalError } from '@/lib/api-utils';
 
-type PrintJobWithLegacyCafe = {
-  cafeId: string | { toString(): string };
-  save: () => Promise<void>;
-};
-
-async function resolveAuthorizedJobCafe(job: PrintJobWithLegacyCafe) {
+async function resolveAuthorizedJobCafe(job: any) {
   const directCafe = await Cafe.findById(job.cafeId).lean();
   if (directCafe) {
     return directCafe;
@@ -141,14 +136,14 @@ export async function GET(
               'Content-Security-Policy': "default-src 'none'",
             },
           });
-        } catch {
+        } catch (error) {
           console.warn('[Files] Failed to read legacy local file', { jobId, file: storedName });
           return apiError('File not found', 404);
         }
       }
 
       return apiError('File not found', 404);
-    } catch {
+    } catch (error) {
       console.error('[Files] Failed to generate download URL', { jobId });
       return apiError('Failed to retrieve file', 500);
     }

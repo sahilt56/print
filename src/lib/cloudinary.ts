@@ -36,7 +36,22 @@ export interface DocumentMetadata {
   format: string;
   version: number;
   bytes: number;
-  originalName: string;
+}
+
+function normalizeCloudinaryResourceType(resourceType?: string): 'image' | 'raw' {
+  const normalized = String(resourceType || '').toLowerCase();
+
+  if (normalized === 'raw') return 'raw';
+  if (normalized === 'image') return 'image';
+
+  return 'image';
+}
+
+function inferResourceTypeFromFileType(fileType?: string): 'image' | 'raw' {
+  const normalized = String(fileType || '').toLowerCase();
+
+  if (normalized.includes('pdf')) return 'raw';
+  return 'image';
 }
 
 /**
@@ -44,18 +59,16 @@ export interface DocumentMetadata {
  */
 export async function uploadDocument(
   fileBuffer: Buffer,
-  originalFileName?: string,
   folder: string = "cafe_print_docs"
 ): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
-        type: "private", // Signed private URLs are the intended access mode
+        type: "private",
         resource_type: "auto",
         context: {
           uploadedAt: new Date().toISOString(),
-          ...(originalFileName && { originalName: originalFileName }),
         },
       },
       (error, result) => {
@@ -78,14 +91,14 @@ export async function uploadDocument(
 /**
  * Delete a document from Cloudinary
  */
-export async function deleteDocument(publicId: string, resourceType: string = "image"): Promise<void> {
+export async function deleteDocument(publicId: string, resourceType?: string): Promise<void> {
   if (!publicId) return;
-  
+
   try {
     await cloudinary.uploader.destroy(publicId, {
-      resource_type: resourceType,
+      resource_type: normalizeCloudinaryResourceType(resourceType),
       type: "private",
-      invalidate: true, // Invalidate CDN cache
+      invalidate: true,
     });
   } catch (error) {
     console.error(`Failed to delete document ${publicId}:`, error);
@@ -111,12 +124,15 @@ function normalizeCloudinaryFormat(format?: string, fallback: string = 'jpg'): s
 export function getPrivateDownloadUrl(
   publicId: string,
   format?: string,
-  resourceType: string = "image",
-  expirationSeconds: number = 300
+  resourceType?: string,
+  expirationSeconds: number = 300,
+  version?: number | string
 ): string {
   try {
-    const resolvedFormat = normalizeCloudinaryFormat(format, resourceType === 'raw' ? 'pdf' : 'jpg');
-    const resolvedResourceType = resourceType === 'raw' || resolvedFormat === 'pdf' ? 'raw' : resourceType;
+    const inferredResourceType = inferResourceTypeFromFileType(format || resourceType);
+    const resolvedResourceType = normalizeCloudinaryResourceType(resourceType || inferredResourceType);
+    const resolvedFormat = normalizeCloudinaryFormat(format, resolvedResourceType === 'raw' ? 'pdf' : 'jpg');
+    const normalizedVersion = version !== undefined && version !== null && version !== '' ? Number(version) : undefined;
 
     return cloudinary.url(publicId, {
       resource_type: resolvedResourceType,
@@ -124,6 +140,7 @@ export function getPrivateDownloadUrl(
       format: resolvedFormat,
       sign_url: true,
       expires_at: Math.floor(Date.now() / 1000) + expirationSeconds,
+      ...(normalizedVersion !== undefined && Number.isFinite(normalizedVersion) ? { version: normalizedVersion } : {}),
     });
   } catch (error) {
     console.error('Failed to generate download URL:', error);
@@ -136,7 +153,7 @@ export function getPrivateDownloadUrl(
  */
 export async function getDocumentMetadata(publicId: string): Promise<Record<string, unknown>> {
   try {
-    return await cloudinary.api.resource(publicId);
+    return await cloudinary.api.resource(publicId, { type: 'private' });
   } catch (error) {
     console.error(`Failed to fetch metadata for ${publicId}:`, error);
     throw error;
@@ -146,9 +163,12 @@ export async function getDocumentMetadata(publicId: string): Promise<Record<stri
 /**
  * Check if document exists in Cloudinary
  */
-export async function documentExists(publicId: string): Promise<boolean> {
+export async function documentExists(publicId: string, resourceType?: string): Promise<boolean> {
   try {
-    await cloudinary.api.resource(publicId);
+    await cloudinary.api.resource(publicId, {
+      type: 'private',
+      ...(resourceType ? { resource_type: normalizeCloudinaryResourceType(resourceType) } : {}),
+    });
     return true;
   } catch (error: unknown) {
     const err = error as Record<string, unknown>;
@@ -162,12 +182,12 @@ export async function documentExists(publicId: string): Promise<boolean> {
 /**
  * Delete multiple documents (for batch cleanup)
  */
-export async function deleteDocuments(publicIds: string[], resourceType: string = "image"): Promise<void> {
+export async function deleteDocuments(publicIds: string[], resourceType?: string): Promise<void> {
   if (!publicIds || publicIds.length === 0) return;
 
   try {
     await cloudinary.api.delete_resources(publicIds, {
-      resource_type: resourceType,
+      resource_type: normalizeCloudinaryResourceType(resourceType),
       type: "private",
       invalidate: true,
     });

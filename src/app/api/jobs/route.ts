@@ -40,6 +40,10 @@ export async function POST(request: NextRequest) {
       copies,
       paymentMethod,
       layout,
+      cloudinaryPublicId,
+      cloudinaryResourceType,
+      cloudinaryFormat,
+      cloudinaryVersion,
     } = body;
 
     // 1. Validate required fields
@@ -166,10 +170,14 @@ export async function POST(request: NextRequest) {
     // 10. Create job
     const newJob = await PrintJob.create({
       jobNumber,
-      cafeId: cafe._id.toString(),
+      cafeId: cafe._id,
       fileUrl: primaryFileUrl,
       fileName: fileName || 'Print Document',
       fileType: fileType || 'image/png',
+      cloudinaryPublicId: cloudinaryPublicId || null,
+      cloudinaryResourceType: cloudinaryResourceType || null,
+      cloudinaryFormat: cloudinaryFormat || null,
+      cloudinaryVersion: Number.isFinite(Number(cloudinaryVersion)) ? Number(cloudinaryVersion) : null,
       layout: hasLayout ? layout : [],
       pageCount: finalPageCount,
       selectedPages: selectedPages || 'all',
