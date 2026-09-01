@@ -156,7 +156,6 @@ function PdfPreview({
         setPageCount(pdf.numPages);
       } catch (err: any) {
         if (!cancelled) {
-          console.error('PDF loading failed:', err);
           setError('Unable to load PDF preview.');
         }
       }
@@ -206,7 +205,7 @@ function PdfPreview({
           setFitScale(nextFitScale);
         }
       } catch (err) {
-        console.error('PDF fit scale calculation failed:', err);
+        
       }
     };
 
@@ -294,7 +293,6 @@ function PdfPreview({
         }
       } catch (err: any) {
         if (!cancelled && err?.name !== 'RenderingCancelledException') {
-          console.error('PDF pages render failed:', err);
           setError('Unable to render PDF preview.');
         }
       } finally {
@@ -608,7 +606,7 @@ export default function PreviewPage({
   const [a4Width, setA4Width] = useState(0);
   const [isRotating, setIsRotating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-
+  const [error, setError] = useState<string>('');
   // ✅ ISKO ADD KAREIN:
 const isMounted = useIsMounted();
 
@@ -621,7 +619,6 @@ const isMounted = useIsMounted();
       const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
       return pdf.numPages || 1;
     } catch (error) {
-      console.error('PDF page count failed:', error);
       return 1;
     }
   };
@@ -829,66 +826,79 @@ const isMounted = useIsMounted();
   };
 
   const handleReplaceFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextFile = event.target.files?.[0];
-    if (nextFile && selectedItem) {
-      const newUrl = URL.createObjectURL(nextFile);
-      const isPdfFile = nextFile.type === 'application/pdf';
-
-      if (isPdfFile) {
-        const pages = await countPdfPages(nextFile);
-        setTotalPages(pages);
-      } else {
-        setTotalPages(1);
-      }
-
-      setItems((previous) =>
-        previous.map((item) =>
-          item.id === selectedItem.id
-            ? {
-                ...item,
-                file: nextFile,
-                url: newUrl,
-                isImage: nextFile.type.startsWith('image/'),
-                isPdf: isPdfFile,
-                size: {
-                  width: isPdfFile ? currentCanvasWidth : 150,
-                  height: isPdfFile ? currentCanvasHeight : 100,
-                },
-                pos: { x: isPdfFile ? 0 : 20, y: isPdfFile ? 0 : 20 },
-              }
-            : item
-        )
-      );
+  const nextFile = event.target.files?.[0];
+  if (nextFile && selectedItem) {
+    setError('');
+  if (nextFile.size && nextFile.size > 12 * 1024 * 1024) {
+      setError('❌ File size must be less than 12 MB. Please select a smaller file.');
+      event.target.value = '';
+      return;
     }
-    event.target.value = '';
-  };
+
+    const newUrl = URL.createObjectURL(nextFile);
+    const isPdfFile = nextFile.type === 'application/pdf';
+
+    if (isPdfFile) {
+      const pages = await countPdfPages(nextFile);
+      setTotalPages(pages);
+    } else {
+      setTotalPages(1);
+    }
+
+    setItems((previous) =>
+      previous.map((item) =>
+        item.id === selectedItem.id
+          ? {
+              ...item,
+              file: nextFile,
+              url: newUrl,
+              isImage: nextFile.type.startsWith('image/'),
+              isPdf: isPdfFile,
+              size: {
+                width: isPdfFile ? currentCanvasWidth : 150,
+                height: isPdfFile ? currentCanvasHeight : 100,
+              },
+              pos: { x: isPdfFile ? 0 : 20, y: isPdfFile ? 0 : 20 },
+            }
+          : item
+      )
+    );
+  }
+  event.target.value = '';
+};
 
   const handleAddAnotherImage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newFile = event.target.files?.[0];
-    if (newFile) {
-      const newUrl = URL.createObjectURL(newFile);
-      const newId = `item-${Date.now()}`;
-      const offset = items.length * 25;
-
-      const newItem: CanvasItemState = {
-        id: newId,
-        file: newFile,
-        url: newUrl,
-        isImage: newFile.type.startsWith('image/'),
-        isPdf: newFile.type === 'application/pdf',
-        pos: {
-          x: Math.min(Math.max(0, currentCanvasWidth - 160), 20 + offset),
-          y: Math.min(Math.max(0, currentCanvasHeight - 110), 20 + offset),
-        },
-        size: { width: 150, height: 100 },
-      };
-
-      setItems((previous) => [...previous, newItem]);
-      setActiveItemId(newId);
+  const newFile = event.target.files?.[0];
+  if (newFile) {
+    setError('');
+  if (newFile.size > 12 * 1024 * 1024) {
+      setError('❌ File size must be less than 12 MB. Please select a smaller file.');
+      event.target.value = '';
+      return;
     }
-    event.target.value = '';
-  };
 
+    const newUrl = URL.createObjectURL(newFile);
+    const newId = `item-${Date.now()}`;
+    const offset = items.length * 25;
+
+    const newItem: CanvasItemState = {
+      id: newId,
+      file: newFile,
+      url: newUrl,
+      isImage: newFile.type.startsWith('image/'),
+      isPdf: newFile.type === 'application/pdf',
+      pos: {
+        x: Math.min(Math.max(0, currentCanvasWidth - 160), 20 + offset),
+        y: Math.min(Math.max(0, currentCanvasHeight - 110), 20 + offset),
+      },
+      size: { width: 150, height: 100 },
+    };
+
+    setItems((previous) => [...previous, newItem]);
+    setActiveItemId(newId);
+  }
+  event.target.value = '';
+};
   const handleDelete = () => {
     if (items.length <= 1) {
       setFile(null);
@@ -908,7 +918,7 @@ const isMounted = useIsMounted();
     try {
       router.push(`/${cafeId}/options`);
     } catch (error: any) {
-      console.error('Preview navigation Error:', error);
+      
       alert(error?.message || 'Something went wrong. Please try again.');
       setIsUploading(false);
     }
@@ -950,11 +960,28 @@ const isMounted = useIsMounted();
   };
 
   return (
+    
     <Layout>
       <div className={styles.header}>
         <h1 className={styles.title}>Preview &amp; Position</h1>
       </div>
-
+      {error && (
+          <div
+            style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              padding: '0.75rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.9rem',
+              textAlign: 'center',
+              marginBottom: '1rem',
+              fontWeight: 500,
+            }}
+          >
+            {error}
+          </div>
+        )}
       <div className={styles.a4Wrapper}>
         <div
           ref={a4Ref}
@@ -1087,7 +1114,7 @@ const isMounted = useIsMounted();
           <Trash2 size={16} /> Delete Item
         </Button>
       </div>
-
+              
       <input
         ref={replaceInputRef}
         type="file"
@@ -1101,6 +1128,7 @@ const isMounted = useIsMounted();
         type="file"
         className="visually-hidden"
         accept=".png,.jpg,.jpeg"
+        capture="environment"
         onChange={handleAddAnotherImage}
       />
 

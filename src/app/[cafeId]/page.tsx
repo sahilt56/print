@@ -61,6 +61,13 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
+    // 🛑 12 MB Size Limit Check
+    if (selectedFile.size > 12 * 1024 * 1024) {
+      setError('❌ File size must be less than 12 MB. Please choose a smaller file.');
+      e.target.value = '';
+      return;
+    }
+
     isProcessingRef.current = true;
     setIsProcessing(true);
     setError('');
@@ -143,6 +150,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               type="file"
               className="visually-hidden"
               accept=".pdf,image/*"
+              capture="environment" // 👈 Mobile ke liye direct camera/gallery trigger karega
               onChange={handleFileChange}
               disabled={isProcessing}
             />
@@ -165,7 +173,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
         </div>
 
         <div className={styles.footer}>
-          <p>Supported: PDF, JPG, PNG (Max 10MB)</p>
+          <p>Supported: PDF, JPG, PNG (Max 12MB)</p>
         </div>
       </div>
     </div>
