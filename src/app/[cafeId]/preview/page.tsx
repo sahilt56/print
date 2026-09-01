@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Layout } from '@/components/ui/Layout';
 import { Button } from '@/components/ui/Button';
@@ -10,7 +10,7 @@ import styles from './page.module.css';
 import * as pdfjsLib from 'pdfjs-dist';
 import QuickPinchZoom from 'react-quick-pinch-zoom';
 
-import { useCallback } from 'react'; // 👈 Fix 1: useCallback import
+// 👈 Fix 1: useCallback import
 import { 
   Crop, 
   RotateCw, 
@@ -24,12 +24,25 @@ import {
 const A4_RATIO = 297 / 210; // 1.4142
 
 // ye naya add kiye haiii
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
+type PageState = 'pending' | 'rendering' | 'rendered';
+
 function PdfPreviewCanvas({ url }: { url: string }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const targetRef = useRef<HTMLDivElement>(null);
+  const pdfRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const renderTasksRef = useRef<Map<number, any>>(new Map());
+  const pageStateRef = useRef<Map<number, PageState>>(new Map());
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
-  // Pinch Zoom & 2D Dragging Matrix
+  const [numPages, setNumPages] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const onUpdate = useCallback(({ x, y, scale }: { x: number; y: number; scale: number }) => {
     if (targetRef.current) {
       targetRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
@@ -37,134 +50,187 @@ function PdfPreviewCanvas({ url }: { url: string }) {
     }
   }, []);
 
+  const renderPage = useCallback(async (pageNum: number, canvas: HTMLCanvasElement) => {
+    const pdf = pdfRef.current;
+    if (!pdf) return;
+
+    const state = pageStateRef.current.get(pageNum);
+    if (state === 'rendering' || state === 'rendered') return;
+    pageStateRef.current.set(pageNum, 'rendering');
+
+    try {
+      const page = await pdf.getPage(pageNum);
+      const containerWidth = wrapperRef.current?.clientWidth || 360;
+      const baseViewport = page.getViewport({ scale: 1 });
+      const fitScale = containerWidth / baseViewport.width;
+      const viewport = page.getViewport({ scale: fitScale });
+
+      const outputScale = Math.max(window.devicePixelRatio || 1, 2);
+
+      canvas.width = Math.floor(viewport.width * outputScale);
+      canvas.height = Math.floor(viewport.height * outputScale);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      const renderTask = page.render({
+        canvasContext: context,
+        viewport,
+        canvas,
+        transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
+      });
+
+      renderTasksRef.current.set(pageNum, renderTask);
+      await renderTask.promise;
+      renderTasksRef.current.delete(pageNum);
+      pageStateRef.current.set(pageNum, 'rendered');
+    } catch (err: any) {
+      if (err?.name !== 'RenderingCancelledException') {
+        console.error(`Page ${pageNum} render error:`, err);
+      }
+      pageStateRef.current.set(pageNum, 'pending');
+    }
+  }, []);
+
   useEffect(() => {
-    let isMounted = true;
+    let cancelled = false;
 
-    const renderAllPages = async () => {
+    const init = async () => {
+      setLoading(true);
+      setError(null);
       try {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/build/pdf.worker.min.mjs',
-          import.meta.url
-        ).toString();
-
-        const loadingTask = pdfjsLib.getDocument({ url });
-        const pdf = await loadingTask.promise;
-
-        if (!containerRef.current || !isMounted) return;
-        containerRef.current.innerHTML = '';
-
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          const page = await pdf.getPage(pageNum);
-          const viewport = page.getViewport({ scale: 1.2 });
-
-          const canvas = document.createElement('canvas');
-          canvas.style.width = '100%';
-          canvas.style.height = 'auto';
-          canvas.style.marginBottom = '12px';
-          canvas.style.display = 'block';
-          canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-
-          const context = canvas.getContext('2d');
-          if (context) {
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-
-            await page.render({
-              canvasContext: context,
-              viewport: viewport,
-              canvas: canvas,
-            }).promise;
-          }
-
-          if (isMounted && containerRef.current) {
-            containerRef.current.appendChild(canvas);
-          }
-        }
+        const pdf = await pdfjsLib.getDocument({ url }).promise;
+        if (cancelled) return;
+        pdfRef.current = pdf;
+        setNumPages(pdf.numPages);
       } catch (err) {
-        console.error('PDF multi-page render error:', err);
+        console.error('PDF load error:', err);
+        if (!cancelled) setError('PDF load nahi ho paayi.');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
 
-    renderAllPages();
+    init();
+
     return () => {
-      isMounted = false;
+      cancelled = true;
+      renderTasksRef.current.forEach((task) => task.cancel());
+      renderTasksRef.current.clear();
+      pageStateRef.current.clear();
+      (pdfRef.current as any)?.destroy();
+      pdfRef.current = null;
     };
   }, [url]);
 
+  useEffect(() => {
+    if (!numPages || !containerRef.current) return;
+
+    observerRef.current?.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const pageNum = Number((entry.target as HTMLElement).dataset.pageNum);
+            const canvas = entry.target.querySelector('canvas');
+            if (canvas) renderPage(pageNum, canvas as HTMLCanvasElement);
+          }
+        });
+      },
+      { root: wrapperRef.current, rootMargin: '300px 0px', threshold: 0.01 }
+    );
+
+    containerRef.current
+      .querySelectorAll('[data-page-num]')
+      .forEach((el) => observerRef.current?.observe(el));
+
+    return () => observerRef.current?.disconnect();
+  }, [numPages, renderPage]);
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout>;
+    const onResize = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        pageStateRef.current.clear();
+        containerRef.current?.querySelectorAll('[data-page-num]').forEach((el) => {
+          const rect = el.getBoundingClientRect();
+          if (rect.top < window.innerHeight && rect.bottom > 0) {
+            const pageNum = Number((el as HTMLElement).dataset.pageNum);
+            const canvas = el.querySelector('canvas');
+            if (canvas) renderPage(pageNum, canvas as HTMLCanvasElement);
+          }
+        });
+      }, 300);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      clearTimeout(t);
+    };
+  }, [renderPage]);
+
+  if (error) {
+    return <div style={{ padding: 8, color: '#dc2626', fontSize: 12 }}>{error}</div>;
+  }
+
   return (
-    <QuickPinchZoom 
-      onUpdate={onUpdate} 
-      draggableUnZoomed={true} // 👈 Isse normal state me bhi drag allow rahega
-      inertia={true}
-    >
-      <div ref={targetRef} style={{ width: '100%' }}>
-        <div ref={containerRef} style={{ width: '100%' }} />
-      </div>
-    </QuickPinchZoom>
+    <div ref={wrapperRef} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
+      {loading && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            fontSize: 12,
+            color: '#666',
+          }}
+        >
+          Loading...
+        </div>
+      )}
+
+      <QuickPinchZoom
+        onUpdate={onUpdate}
+        draggableUnZoomed={true}
+        inertia={true}
+        minZoom={1}
+        maxZoom={5}
+        zoomOutFactor={1.3}
+      >
+        <div ref={targetRef} style={{ width: '100%', willChange: 'transform' }}>
+          <div ref={containerRef} style={{ width: '100%' }}>
+            {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
+              <div
+                key={pageNum}
+                data-page-num={pageNum}
+                style={{
+                  width: '100%',
+                  minHeight: 200,
+                  marginBottom: 8,
+                  display: 'flex',
+                  justifyContent: 'center',
+                }}
+              >
+                <canvas
+                  style={{
+                    display: 'block',
+                    background: '#fff',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      </QuickPinchZoom>
+    </div>
   );
 }
-// function PdfPreviewCanvas({ url }: { url: string }) {
-//   const containerRef = useRef<HTMLDivElement>(null);
-
-//   useEffect(() => {
-//     let isMounted = true;
-
-//     const renderAllPages = async () => {
-//       try {
-//         pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-//           'pdfjs-dist/build/pdf.worker.min.mjs',
-//           import.meta.url
-//         ).toString();
-
-//         const loadingTask = pdfjsLib.getDocument({ url });
-//         const pdf = await loadingTask.promise;
-
-//         if (!containerRef.current || !isMounted) return;
-//         containerRef.current.innerHTML = ''; // Purana canvas clear karein
-
-//         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-//           const page = await pdf.getPage(pageNum);
-//           const viewport = page.getViewport({ scale: 1.2 });
-
-//           const canvas = document.createElement('canvas');
-//           canvas.style.width = '100%';
-//           canvas.style.height = 'auto';
-//           canvas.style.marginBottom = '12px';
-//           canvas.style.display = 'block';
-//           canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-
-//           const context = canvas.getContext('2d');
-//           if (context) {
-//             canvas.height = viewport.height;
-//             canvas.width = viewport.width;
-
-//             await page.render({
-//               canvasContext: context,
-//               viewport: viewport,
-//               canvas: canvas,
-//             }).promise;
-//           }
-
-//           if (isMounted && containerRef.current) {
-//             containerRef.current.appendChild(canvas);
-//           }
-//         }
-//       } catch (err) {
-//         console.error('PDF multi-page render error:', err);
-//       }
-//     };
-
-//     renderAllPages();
-//     return () => {
-//       isMounted = false;
-//     };
-//   }, [url]);
-
-//   return (
-//   <div ref={containerRef} style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }} />
-// );
-// }
-
+  
 // ye purana hai
 export default function PreviewPage({ params }: { params: Promise<{ cafeId: string }> }) {
   const router = useRouter();
