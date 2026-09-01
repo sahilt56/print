@@ -8,8 +8,8 @@ export interface CanvasItemState {
   url: string;
   isImage: boolean;
   isPdf: boolean;
-  pos: { x: number; y: number }; // px relative to A4
-  size: { width: number; height: number }; // px width & height
+  pos: { x: number; y: number };
+  size: { width: number; height: number };
 }
 
 interface PrintJobState {
@@ -29,9 +29,11 @@ interface PrintJobState {
   setSelectedPages: (pages: string) => void;
   totalPages: number;
   setTotalPages: (pages: number) => void;
+  clearAllMemory: () => void; // 🛡️ New function to hard-reset memory leak hooks
 }
 
 const PrintJobContext = createContext<PrintJobState | undefined>(undefined);
+
 export function PrintJobProvider({ children }: { children: ReactNode }) {
   const [file, setFileState] = useState<File | null>(null);
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
@@ -41,16 +43,41 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
   const [copies, setCopies] = useState<number>(1);
   const [selectedPages, setSelectedPages] = useState<string>('all');
   const [totalPages, setTotalPages] = useState<number>(1);
-  const setFile = (newFile: File | null) => {
-    console.log("🔍 DEBUG - setFile called with:", newFile);
+
+  // 🛡️ Safe Garbage collection utility
+  const clearAllMemory = () => {
     if (filePreviewUrl) {
       URL.revokeObjectURL(filePreviewUrl);
     }
+    items.forEach((item) => {
+      if (item.url) URL.revokeObjectURL(item.url);
+    });
+    setFilePreviewUrl(null);
+    setFileState(null);
+    setItems([]);
+    setActiveItemId(null);
+  };
+
+  const setFile = (newFile: File | null) => {
+    console.log("🔍 DEBUG - setFile called with:", newFile?.name);
+    
+    // 1. Instantly revoke the old file to release RAM
+    if (filePreviewUrl) {
+      URL.revokeObjectURL(filePreviewUrl);
+    }
+
     setFileState(newFile);
+
     if (newFile) {
+      // 2. Generate a fresh URL container
       const url = URL.createObjectURL(newFile);
       setFilePreviewUrl(url);
-      setItems([]); // reset items if main root file resets
+      
+      // Clean stale array tracking elements immediately
+      if (items.length > 0) {
+        items.forEach(item => { if (item.url) URL.revokeObjectURL(item.url); });
+      }
+      setItems([]); 
       setActiveItemId(null);
     } else {
       setFilePreviewUrl(null);
@@ -95,7 +122,9 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
         setCopies,
         selectedPages,
         setSelectedPages,
-        totalPages, setTotalPages
+        totalPages,
+        setTotalPages,
+        clearAllMemory
       }}
     >
       {children}

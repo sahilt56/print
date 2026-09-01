@@ -5,28 +5,44 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
 import styles from './page.module.css';
-import { UploadCloud, Camera, X, RefreshCw } from 'lucide-react';
+import { UploadCloud, Camera } from 'lucide-react';
+import imageCompression from 'browser-image-compression';
 
 interface CafeDetails {
   name?: string;
   logoUrl?: string | null;
 }
 
+// 🛡️ Safe Super-Light Compress Function (RAM Crash protection)
+// 🛡️ Safe Memory Compression (createObjectURL + Object Blob)
+async function compressImage(file: File): Promise<File> {
+  const options = {
+    maxSizeMB: 1,                  // Reduces massive files immediately
+    maxWidthOrHeight: 1024,        // Safe boundary for printing forms/text
+    useWebWorker: true,            // 🛡️ Moves execution off the main UI thread to prevent crashes
+    initialQuality: 0.6,           // Balanced compression
+    alwaysKeepResolution: false    // Forces downsizing of huge mobile sensors
+  };
+
+  try {
+    return await imageCompression(file, options);
+  } catch (error) {
+    console.warn("Worker compression failed, falling back to raw file:", error);
+    return file;
+  }
+}
+
 export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: string }> }) {
   const router = useRouter();
   const { setFile } = usePrintJob();
-  const { cafeId } = React.use(params);
 
+  const { cafeId } = React.use(params);
   const [cafeData, setCafeData] = useState<CafeDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
 
-  // In-App Camera States
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [isFacingUser, setIsFacingUser] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -37,106 +53,103 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
           const data = await response.json();
           if (isMounted) setCafeData(data);
         }
-      } catch (err) {
-        console.warn('Could not load cafe details:', err);
+      } catch (error) {
+        console.warn('Could not load cafe details:', error);
       } finally {
         if (isMounted) setIsLoading(false);
       }
     }
-    if (cafeId) fetchCafeDetails();
-    return () => { isMounted = false; };
+
+    if (cafeId) {
+      fetchCafeDetails();
+    }
+    return () => {
+      isMounted = false;
+    };
   }, [cafeId]);
 
-  /* ---------------------------------------------------------------------- */
-  /* IN-APP CAMERA CONTROLS (NO NATIVE CAM APP CRASH)                       */
-  /* ---------------------------------------------------------------------- */
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const selectedFile = e.target.files?.[0];
+  if (!selectedFile) return;
 
-  const startCamera = async (frontCamera = false) => {
-    setError('');
-    setIsCameraOpen(true);
+  setError('');
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-    }
+  const isPdf = selectedFile.type === 'application/pdf';
+  const isImage = selectedFile.type.startsWith('image/');
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: frontCamera ? 'user' : 'environment',
-          width: { ideal: 1024 },
-          height: { ideal: 768 }
-        }
-      });
-
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (err) {
-      console.error('Camera error:', err);
-      setError('❌ Camera permission denied or not supported.');
-      setIsCameraOpen(false);
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setIsCameraOpen(false);
-  };
-
-  const capturePhoto = () => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 800;
-    canvas.height = video.videoHeight || 600;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          const capturedFile = new File([blob], `photo-${Date.now()}.jpg`, {
-            type: 'image/jpeg',
-            lastModified: Date.now(),
-          });
-          stopCamera();
-          setFile(capturedFile);
-          router.push(`/${cafeId}/preview`);
-        }
-      },
-      'image/jpeg',
-      0.6
-    );
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
-
-    setFile(selectedFile);
-    router.push(`/${cafeId}/preview`);
+  if (!isImage && !isPdf) {
+    setError('❌ Invalid file format! Please choose PDF, JPG, or PNG.');
     e.target.value = '';
-  };
+    return;
+  }
+
+  let finalFile = selectedFile;
+
+  if (isImage) {
+    try {
+      // Background worker handles the scale down securely
+      finalFile = await compressImage(selectedFile);
+    } catch (err) {
+      console.warn('Compression bypassed:', err);
+    }
+  }
+
+  setFile(finalFile);
+  
+  // Clean up input value immediately to release reference pointer from DOM memory
+  e.target.value = ''; 
+  
+  router.push(`/${cafeId}/preview`);
+};
+
 
   return (
     <div className={styles.heroContainer}>
+      {cafeData?.logoUrl && (
+        <div className={styles.bgImageWrapper}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={cafeData.logoUrl} alt="Hero Background" className={styles.bgImage} />
+          <div className={styles.overlay} />
+        </div>
+      )}
+
       <div className={styles.contentWrapper}>
         <div className={styles.header}>
-          <h1 className={styles.title}>{cafeData?.name || 'QR PRINT'}</h1>
+          {cafeData?.logoUrl && (
+            <div style={{ marginBottom: '16px', textAlign: 'center' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={cafeData.logoUrl} alt="Cafe Logo" className={styles.logoImage} />
+            </div>
+          )}
+
+          {isLoading ? (
+            <h1 className={styles.titleLoader}>Loading...</h1>
+          ) : (
+            <h1 className={styles.title}>{cafeData?.name || 'QR PRINT'}</h1>
+          )}
           <p className={styles.subtitle}>Upload &bull; Crop &bull; Print</p>
         </div>
 
-        {error && <div style={{ color: '#ef4444', textAlign: 'center', marginBottom: '1rem' }}>{error}</div>}
+        {error && (
+          <div
+            style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              padding: '0.75rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.9rem',
+              textAlign: 'center',
+              marginBottom: '1rem',
+              fontWeight: 500,
+            }}
+          >
+            {error}
+          </div>
+        )}
 
         <div className={styles.actions}>
+          {/* Upload Document */}
           <div className={styles.uploadContainer}>
             <input
               ref={docInputRef}
@@ -145,32 +158,49 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               accept=".pdf,.png,.jpg,.jpeg,image/*"
               onChange={handleFileChange}
             />
-            <Button variant="primary" size="large" fullWidth onClick={() => docInputRef.current?.click()}>
+            <Button
+              variant="primary"
+              size="large"
+              fullWidth
+              onClick={() => {
+                setError('');
+                docInputRef.current?.click();
+              }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
               <UploadCloud size={18} /> Upload Document
             </Button>
           </div>
 
+          {/* Direct Camera Capture */}
           <div className={styles.uploadContainer}>
-            <Button variant="secondary" size="large" fullWidth onClick={() => startCamera(false)}>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              className="visually-hidden"
+              accept=".jpg,.jpeg,.png" 
+              capture="environment"
+              onChange={handleFileChange}
+            />
+            <Button
+              variant="secondary"
+              size="large"
+              fullWidth
+              onClick={() => {
+                setError('');
+                cameraInputRef.current?.click();
+              }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
               <Camera size={18} /> Take Photo
             </Button>
           </div>
         </div>
-      </div>
 
-      {/* IN-APP CAMERA MODAL OVERLAY */}
-      {isCameraOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', padding: 20 }}>
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
-            <button onClick={stopCamera} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: '50%', width: 40, height: 40 }}><X size={20} /></button>
-            <button onClick={() => { setIsFacingUser(!isFacingUser); startCamera(!isFacingUser); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: '50%', width: 40, height: 40 }}><RefreshCw size={20} /></button>
-          </div>
-
-          <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', maxHeight: '70vh', objectFit: 'cover', borderRadius: 12 }} />
-
-          <button onClick={capturePhoto} style={{ width: 70, height: 70, borderRadius: '50%', backgroundColor: '#fff', border: '4px solid #ccc', cursor: 'pointer', marginBottom: 20 }} />
+        <div className={styles.footer}>
+          <p>Supported: PDF, JPG, PNG (Max 10MB)</p>
         </div>
-      )}
+      </div>
     </div>
   );
 }
