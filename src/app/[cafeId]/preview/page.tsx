@@ -7,6 +7,10 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { usePrintJob, CanvasItemState } from '@/context/PrintJobContext';
 import styles from './page.module.css';
+import * as pdfjsLib from 'pdfjs-dist';
+import QuickPinchZoom from 'react-quick-pinch-zoom';
+
+import { useCallback } from 'react'; // 👈 Fix 1: useCallback import
 import { 
   Crop, 
   RotateCw, 
@@ -19,6 +23,149 @@ import {
 
 const A4_RATIO = 297 / 210; // 1.4142
 
+// ye naya add kiye haiii
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+function PdfPreviewCanvas({ url }: { url: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const targetRef = useRef<HTMLDivElement>(null);
+
+  // Pinch Zoom & 2D Dragging Matrix
+  const onUpdate = useCallback(({ x, y, scale }: { x: number; y: number; scale: number }) => {
+    if (targetRef.current) {
+      targetRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+      targetRef.current.style.transformOrigin = '0 0';
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const renderAllPages = async () => {
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url
+        ).toString();
+
+        const loadingTask = pdfjsLib.getDocument({ url });
+        const pdf = await loadingTask.promise;
+
+        if (!containerRef.current || !isMounted) return;
+        containerRef.current.innerHTML = '';
+
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const viewport = page.getViewport({ scale: 1.2 });
+
+          const canvas = document.createElement('canvas');
+          canvas.style.width = '100%';
+          canvas.style.height = 'auto';
+          canvas.style.marginBottom = '12px';
+          canvas.style.display = 'block';
+          canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+
+          const context = canvas.getContext('2d');
+          if (context) {
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({
+              canvasContext: context,
+              viewport: viewport,
+              canvas: canvas,
+            }).promise;
+          }
+
+          if (isMounted && containerRef.current) {
+            containerRef.current.appendChild(canvas);
+          }
+        }
+      } catch (err) {
+        console.error('PDF multi-page render error:', err);
+      }
+    };
+
+    renderAllPages();
+    return () => {
+      isMounted = false;
+    };
+  }, [url]);
+
+  return (
+    <QuickPinchZoom 
+      onUpdate={onUpdate} 
+      draggableUnZoomed={true} // 👈 Isse normal state me bhi drag allow rahega
+      inertia={true}
+    >
+      <div ref={targetRef} style={{ width: '100%' }}>
+        <div ref={containerRef} style={{ width: '100%' }} />
+      </div>
+    </QuickPinchZoom>
+  );
+}
+// function PdfPreviewCanvas({ url }: { url: string }) {
+//   const containerRef = useRef<HTMLDivElement>(null);
+
+//   useEffect(() => {
+//     let isMounted = true;
+
+//     const renderAllPages = async () => {
+//       try {
+//         pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+//           'pdfjs-dist/build/pdf.worker.min.mjs',
+//           import.meta.url
+//         ).toString();
+
+//         const loadingTask = pdfjsLib.getDocument({ url });
+//         const pdf = await loadingTask.promise;
+
+//         if (!containerRef.current || !isMounted) return;
+//         containerRef.current.innerHTML = ''; // Purana canvas clear karein
+
+//         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+//           const page = await pdf.getPage(pageNum);
+//           const viewport = page.getViewport({ scale: 1.2 });
+
+//           const canvas = document.createElement('canvas');
+//           canvas.style.width = '100%';
+//           canvas.style.height = 'auto';
+//           canvas.style.marginBottom = '12px';
+//           canvas.style.display = 'block';
+//           canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+
+//           const context = canvas.getContext('2d');
+//           if (context) {
+//             canvas.height = viewport.height;
+//             canvas.width = viewport.width;
+
+//             await page.render({
+//               canvasContext: context,
+//               viewport: viewport,
+//               canvas: canvas,
+//             }).promise;
+//           }
+
+//           if (isMounted && containerRef.current) {
+//             containerRef.current.appendChild(canvas);
+//           }
+//         }
+//       } catch (err) {
+//         console.error('PDF multi-page render error:', err);
+//       }
+//     };
+
+//     renderAllPages();
+//     return () => {
+//       isMounted = false;
+//     };
+//   }, [url]);
+
+//   return (
+//   <div ref={containerRef} style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }} />
+// );
+// }
+
+// ye purana hai
 export default function PreviewPage({ params }: { params: Promise<{ cafeId: string }> }) {
   const router = useRouter();
   const {
@@ -380,8 +527,20 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
                       draggable={false}
                     />
                   )}
-
                   {item.isPdf && (
+  <div 
+    className={styles.pdfScrollContainer}
+    onPointerDown={(e) => e.stopPropagation()}
+  >
+    <PdfPreviewCanvas url={item.url} />
+  </div>
+)}
+                    {/* {item.isPdf && (
+  <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <PdfPreviewCanvas url={item.url} />
+  </div>
+)} */}
+                  {/* {item.isPdf && (
                     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#ffffff' }}>
                       <div style={{ 
                         position: 'absolute', 
@@ -402,7 +561,7 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
                         />
                       </div>
                     </div>
-                  )}
+                  )} */}
 
                   {isSelected && !item.isPdf && (
                     <>
