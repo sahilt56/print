@@ -33,7 +33,7 @@
   position: absolute;
   inset: 0;
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(2, 6, 23, 0.9));
-  -webkit-backdrop-filter: blur(10px); /* Safari aur iOS ke liye */
+  -webkit-backdrop-filter: blur(10px); 
    backdrop-filter: blur(10px);
 }
 

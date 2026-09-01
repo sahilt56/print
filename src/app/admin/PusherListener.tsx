@@ -26,7 +26,6 @@ export default function PusherListener({ cafeId }: PusherListenerProps) {
 
     // 3. Listen for new jobs
     channel.bind('new-print-job', (data: any) => {
-      console.log('⚡ Real-time job received:', data);
 
       // 🔊 Play sound safely (Catch block stops NotAllowedError console spam)
       audio.play().catch((err) => {
