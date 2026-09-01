@@ -5,12 +5,41 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
 import Cafe from '@/models/Cafe';
+import PrintJob from '@/models/PrintJob';
 
 async function isSuperAdmin() {
   const session = await getServerSession(authOptions);
   return session?.user?.role === 'super-admin';
 }
+export async function DELETE(request: NextRequest) {
+  if (!(await isSuperAdmin())) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
+  try {
+    await dbConnect();
+    const { searchParams } = new URL(request.url);
+    const cafeId = searchParams.get('id');
+
+    if (!cafeId) {
+      return NextResponse.json({ error: 'Cafe ID is required.' }, { status: 400 });
+    }
+
+    // 1. Cafe ko database se delete karein
+    const deletedCafe = await Cafe.findByIdAndDelete(cafeId);
+    if (!deletedCafe) {
+      return NextResponse.json({ error: 'Cafe not found.' }, { status: 404 });
+    }
+
+    // 2. Optional: Us cafe ke saare print jobs bhi database se saaf kar dein
+    await PrintJob.deleteMany({ cafeId: cafeId });
+
+    return NextResponse.json({ success: true, message: 'Cafe deleted successfully.' });
+  } catch (error: any) {
+    console.error('Delete Cafe Error:', error);
+    return NextResponse.json({ error: error.message || 'Error deleting cafe' }, { status: 500 });
+  }
+}
 export async function POST(request: NextRequest) {
   if (!(await isSuperAdmin())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
