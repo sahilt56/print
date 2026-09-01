@@ -73,13 +73,13 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   if (!selectedFile) return;
 
   setError('');
+  e.target.value = '';
 
   const isPdf = selectedFile.type === 'application/pdf';
   const isImage = selectedFile.type.startsWith('image/');
 
   if (!isImage && !isPdf) {
     setError('❌ Invalid file format! Please choose PDF, JPG, or PNG.');
-    e.target.value = '';
     return;
   }
 
@@ -179,7 +179,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               type="file"
               className="visually-hidden"
               accept=".jpg,.jpeg,.png" 
-              capture="environment"
+              
               onChange={handleFileChange}
             />
             <Button
