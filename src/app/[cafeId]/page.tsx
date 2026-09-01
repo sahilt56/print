@@ -5,66 +5,82 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
 import styles from './page.module.css';
-import { UploadCloud, Camera, Loader2 } from 'lucide-react';
+import { UploadCloud, Loader2 } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 
 interface CafeDetails {
   name?: string;
   logoUrl?: string | null;
 }
-
+// some change
 // 🛡️ Ultra Low-RAM Resizer (Crash-Proof for Mobile Phones)
-// 🛡️ Zero-RAM Crash Compression using createImageBitmap API
 async function compressImageLowMemory(file: File): Promise<File> {
   try {
-    // 1. ImageBitmap direct hardware-level downscale karta hai (bina RAM memory spike ke)
-    let bitmap: ImageBitmap;
+    // 1. createImageBitmap direct hardware-level par resize karta hai (Zero RAM Spike)
     if ('createImageBitmap' in window) {
-      bitmap = await createImageBitmap(file, {
-        resizeWidth: 800, // Strictly max width 800px (RAM usage reduced from 120MB -> 3MB)
+      const maxDim = 1200; // Print documents ke liye 1200px kaafi hai
+      const imgBitmap = await createImageBitmap(file);
+
+      let { width, height } = imgBitmap;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      // Hardware scaled bitmap create karein
+      const scaledBitmap = await createImageBitmap(file, {
+        resizeWidth: width,
+        resizeHeight: height,
         resizeQuality: 'medium',
       });
-    } else {
-      // Fallback for older browsers
-      return file;
+      imgBitmap.close(); // Heavy raw photo ko memory se turant delete karein
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { alpha: false });
+
+      if (ctx) {
+        ctx.drawImage(scaledBitmap, 0, 0);
+        scaledBitmap.close(); // Scaled bitmap memory free karein
+
+        const blob: Blob | null = await new Promise((resolve) =>
+          canvas.toBlob(resolve, 'image/jpeg', 0.75)
+        );
+
+        // Canvas memory free karein
+        canvas.width = 0;
+        canvas.height = 0;
+
+        if (blob) {
+          return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+        }
+      }
     }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-
-    const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) return file;
-
-    ctx.drawImage(bitmap, 0, 0);
-    bitmap.close(); // Immediate Memory Free!
-
-    return new Promise((resolve) => {
-      canvas.toBlob(
-        (blob) => {
-          canvas.width = 0;
-          canvas.height = 0; // Destroy canvas buffer
-          if (!blob) {
-            resolve(file);
-            return;
-          }
-          const compressedFile = new File(
-            [blob],
-            file.name || `photo-${Date.now()}.jpg`,
-            {
-              type: 'image/jpeg',
-              lastModified: Date.now(),
-            }
-          );
-          resolve(compressedFile);
-        },
-        'image/jpeg',
-        0.5 // 50% Quality Compression
-      );
-    });
   } catch (err) {
-    console.warn('Hardware compression bypassed:', err);
-    return file; // If fail, return original without crashing app
+    console.warn('Native low-memory scaling failed, falling back:', err);
+  }
+
+  // Fallback if browser doesn't support createImageBitmap
+  try {
+    const options = {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1200,
+      useWebWorker: false, // Worker low-RAM devices par double memory consume karta hai
+      initialQuality: 0.7,
+    };
+    return await imageCompression(file, options);
+  } catch (error) {
+    console.warn('Compression failed, using raw file:', error);
+    return file;
   }
 }
 
@@ -78,8 +94,9 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
 
+  // 🛡️ Double-Click / Rapid Shutter Lock Ref (Synchronous 0ms Protection)
+  const isProcessingRef = useRef<boolean>(false);
   const docInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -106,27 +123,37 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   }, [cafeId]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 🛡️ Lock Guard: Rapid double clicks ko instantly drop karega
+    if (isProcessingRef.current) {
+      e.target.value = '';
+      return;
+    }
+
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    setError('');
+    // Set locks synchronously
+    isProcessingRef.current = true;
     setIsProcessing(true);
+    setError('');
 
-    // 🛡️ Purani file aur input clean karein
-    setFile(null);
     const rawFile = selectedFile;
-    e.target.value = '';
+    e.target.value = ''; // Reset input target
 
     const isPdf = rawFile.type === 'application/pdf';
-    const isImage = rawFile.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(rawFile.name);
+    const isImage = rawFile.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|heic)$/i.test(rawFile.name);
 
     if (!isImage && !isPdf) {
       setError('❌ Invalid file format! Please choose PDF, JPG, or PNG.');
+      isProcessingRef.current = false;
       setIsProcessing(false);
       return;
     }
 
     try {
+      // Purani stale states clear karein
+      setFile(null);
+
       let finalFile = rawFile;
 
       if (isImage) {
@@ -137,8 +164,9 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
       router.push(`/${cafeId}/preview`);
     } catch (err) {
       console.error('File processing error:', err);
-      setError('Failed to process image. Please try again.');
-    } finally {
+      setError('Failed to process file. Please try again.');
+      // Unlock on failure
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
   };
@@ -189,7 +217,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
         )}
 
         <div className={styles.actions}>
-          {/* Upload Document */}
+          {/* Upload Document (Mobile OS automatically asks for Camera or Files) */}
           <div className={styles.uploadContainer}>
             <input
               ref={docInputRef}
@@ -205,6 +233,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               fullWidth
               disabled={isProcessing}
               onClick={() => {
+                if (isProcessingRef.current) return;
                 setError('');
                 docInputRef.current?.click();
               }}
@@ -212,33 +241,6 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
             >
               {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
               {isProcessing ? 'Processing...' : 'Upload Document'}
-            </Button>
-          </div>
-
-          {/* Direct Camera Capture */}
-          <div className={styles.uploadContainer}>
-            <input
-              ref={cameraInputRef}
-              type="file"
-              className="visually-hidden"
-              accept=".png,.jpg,.jpeg,image/*"
-              capture="environment" // 🛡️ Ye mobile ka direct rear camera open karega
-              onChange={handleFileChange}
-              disabled={isProcessing}
-            />
-            <Button
-              variant="secondary"
-              size="large"
-              fullWidth
-              disabled={isProcessing}
-              onClick={() => {
-                setError('');
-                cameraInputRef.current?.click();
-              }}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-            >
-              {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-              {isProcessing ? 'Processing...' : 'Take Photo'}
             </Button>
           </div>
         </div>
