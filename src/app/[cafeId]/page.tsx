@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
 import styles from './page.module.css';
-import { UploadCloud, Camera, Loader2 } from 'lucide-react';
+import { UploadCloud, Loader2 } from 'lucide-react';
 
 interface CafeDetails {
   name?: string;
@@ -26,7 +26,6 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   const isProcessingRef = useRef<boolean>(false);
 
   const docInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -137,7 +136,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
         )}
 
         <div className={styles.actions}>
-          {/* Upload Document */}
+          {/* Single Upload Document Button */}
           <div className={styles.uploadContainer}>
             <input
               ref={docInputRef}
@@ -161,34 +160,6 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
             >
               {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
               {isProcessing ? 'Processing...' : 'Upload Document'}
-            </Button>
-          </div>
-
-          {/* Direct Camera Capture */}
-          <div className={styles.uploadContainer}>
-            <input
-              ref={cameraInputRef}
-              type="file"
-              className="visually-hidden"
-              accept=".png,.jpg,.jpeg,image/*"
-              capture="environment"
-              onChange={handleFileChange}
-              disabled={isProcessing}
-            />
-            <Button
-              variant="secondary"
-              size="large"
-              fullWidth
-              disabled={isProcessing}
-              onClick={() => {
-                if (isProcessingRef.current) return;
-                setError('');
-                cameraInputRef.current?.click();
-              }}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-            >
-              {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-              {isProcessing ? 'Processing...' : 'Take Photo'}
             </Button>
           </div>
         </div>

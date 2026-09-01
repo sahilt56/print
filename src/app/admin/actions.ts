@@ -10,122 +10,113 @@ import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { cleanupJobCloudinaryAssets } from '@/lib/cloudinary';
 
-async function updateOwnedJob(jobId: string, data: { paymentStatus?: string; printStatus?: string }) {
-  const session = await getServerSession(authOptions);
-  if (!session || !session.user) throw new Error('Unauthorized');
+// 🛡️ Helper: Secure Cafe Verification
+async function getVerifiedCafeId(sessionUser: any) {
+  const cafeId = sessionUser.cafeId || sessionUser.qrCode;
+  const loginId = sessionUser.loginId || sessionUser.email;
 
-  await dbConnect();
+  const cafe = await Cafe.findOne({
+    $or: [
+      ...(cafeId ? [{ qrCode: cafeId }] : []),
+      ...(loginId ? [{ loginId: loginId }] : []),
+    ],
+  })
+    .select('_id')
+    .lean();
 
-  const userObj = session.user as any;
-  const cafeId = userObj.cafeId || userObj.qrCode;
-  const loginId = userObj.loginId || userObj.email;
+  if (!cafe) throw new Error('Cafe not found');
+  return cafe._id;
+}
 
-  // Find cafe to match identifiers
-  const cafe = await Cafe.findOne({
-    $or: [
-      ...(cafeId ? [{ qrCode: cafeId }] : []),
-      ...(loginId ? [{ loginId: loginId }] : []),
-    ],
-  }).lean();
+// 🛡️ Helper: Fast Background Disk & Cloud Cleanup
+function triggerBackgroundCleanup(jobObject: any) {
+  // Cloudinary cleanup fire-and-forget (Doesn't block server response)
+  cleanupJobCloudinaryAssets(jobObject).catch((err) =>
+    console.warn('[Admin Cleanup] Cloudinary failed:', err)
+  );
 
-  if (!cafe) throw new Error('Cafe not found');
+  // Local Disk Files Cleanup
+  if (jobObject.fileUrl) {
+    const filePath = join(process.cwd(), 'public', jobObject.fileUrl);
+    unlink(filePath).catch(() => {});
+  }
 
-  // Update using the canonical ObjectId-based cafeId stored on each job.
-  const result = await PrintJob.updateOne(
-    {
-      _id: jobId,
-      cafeId: cafe._id,
-    },
-    { $set: data }
-  );
-
-  if (result.matchedCount !== 1) {
-    throw new Error('Job not found or access denied');
-  }
+  if (Array.isArray(jobObject.layout)) {
+    for (const item of jobObject.layout) {
+      if (item.fileUrl) {
+        const itemPath = join(process.cwd(), 'public', item.fileUrl);
+        unlink(itemPath).catch(() => {});
+      }
+    }
+  }
 }
 
 export async function markJobPaid(jobId: string) {
-  await updateOwnedJob(jobId, { paymentStatus: 'paid', printStatus: 'pending' });
-  revalidatePath('/admin');
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error('Unauthorized');
+
+  await dbConnect();
+  const cafeDbId = await getVerifiedCafeId(session.user);
+
+  await PrintJob.updateOne(
+    { _id: jobId, cafeId: cafeDbId },
+    { $set: { paymentStatus: 'paid', printStatus: 'pending' } }
+  );
+
+  revalidatePath('/admin');
 }
 
 export async function markJobComplete(jobId: string) {
-  const session = await getServerSession(authOptions);
-  if (!session || !session.user) throw new Error('Unauthorized');
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error('Unauthorized');
 
-  await dbConnect();
+  await dbConnect();
+  const cafeDbId = await getVerifiedCafeId(session.user);
 
-  const userObj = session.user as any;
-  const cafeId = userObj.cafeId || userObj.qrCode;
-  const loginId = userObj.loginId || userObj.email;
+  // 🚀 Fast Direct Update
+  const job = await PrintJob.findOneAndUpdate(
+    { _id: jobId, cafeId: cafeDbId },
+    { $set: { printStatus: 'completed', paymentStatus: 'paid' } },
+    { new: false }
+  ).lean();
 
-  const cafe = await Cafe.findOne({
-    $or: [
-      ...(cafeId ? [{ qrCode: cafeId }] : []),
-      ...(loginId ? [{ loginId: loginId }] : []),
-    ],
-  }).lean();
+  if (job) {
+    // ⚡ Non-blocking background deletion
+    triggerBackgroundCleanup(job);
+  }
 
-  if (!cafe) throw new Error('Cafe not found');
-
-  const job = await PrintJob.findOne({
-    _id: jobId,
-    cafeId: cafe._id,
-  });
-
-  if (job) {
-    await cleanupJobCloudinaryAssets(job.toObject ? job.toObject() : job);
-  }
-
-  await PrintJob.updateOne(
-    { _id: jobId, cafeId: cafe._id },
-    { $set: { printStatus: 'completed', paymentStatus: 'paid' } }
-  );
-
-  revalidatePath('/admin');
+  revalidatePath('/admin');
 }
 
 export async function cancelJob(jobId: string) {
-  const session = await getServerSession(authOptions);
-  if (!session || !session.user) throw new Error('Unauthorized');
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error('Unauthorized');
 
-  await dbConnect();
+  await dbConnect();
+  const cafeDbId = await getVerifiedCafeId(session.user);
 
-  const job = await PrintJob.findById(jobId);
-  if (job) {
-    try {
-      await cleanupJobCloudinaryAssets(job.toObject ? job.toObject() : job);
-    } catch (error) {
-      console.warn('[Admin Cancel] Cloudinary cleanup failed', { jobId, error });
-    }
+  // 🚀 Fast Security-Filtered Update
+  const job = await PrintJob.findOneAndUpdate(
+    { _id: jobId, cafeId: cafeDbId },
+    {
+      $set: {
+        printStatus: 'cancelled',
+        fileUrl: null,
+        layout: [],
+        fileName: 'Cancelled for Privacy',
+        cloudinaryPublicId: null,
+        cloudinaryResourceType: null,
+        cloudinaryFormat: null,
+        cloudinaryVersion: null,
+      },
+    },
+    { new: false }
+  ).lean();
 
-    // Delete Main File from Disk immediately
-    if (job.fileUrl) {
-      const filePath = join(process.cwd(), 'public', job.fileUrl);
-      await unlink(filePath).catch(() => {});
-    }
+  if (job) {
+    // ⚡ Non-blocking background deletion
+    triggerBackgroundCleanup(job);
+  }
 
-    // Delete Layout Files from Disk immediately
-    if (job.layout && job.layout.length > 0) {
-      for (const item of job.layout) {
-        if (item.fileUrl) {
-          const itemPath = join(process.cwd(), 'public', item.fileUrl);
-          await unlink(itemPath).catch(() => {});
-        }
-      }
-    }
-
-    // Update status and clear data
-    job.printStatus = 'cancelled';
-    job.fileUrl = null;
-    job.layout = [];
-    job.fileName = 'Cancelled for Privacy';
-    job.cloudinaryPublicId = null;
-    job.cloudinaryResourceType = null;
-    job.cloudinaryFormat = null;
-    job.cloudinaryVersion = null;
-    await job.save();
-  }
-
-  revalidatePath('/admin');
-}
+  revalidatePath('/admin');
+} 

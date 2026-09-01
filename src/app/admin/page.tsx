@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const revalidate = 0; // 🛡️ Zero Cache Revalidation (Hard disables stale server cache)
 
 import React from 'react';
 import Link from 'next/link';
@@ -13,6 +14,8 @@ import Cafe from '@/models/Cafe';
 import PrintJob from '@/models/PrintJob';
 import { redirect } from 'next/navigation';
 import LogoutButton from './LogoutButton';
+import PusherListener from './PusherListener';
+import mongoose from 'mongoose';
 import { 
   Clock, 
   Printer, 
@@ -78,7 +81,7 @@ export default async function AdminDashboard() {
       ...(cafeId ? [{ qrCode: cafeId }] : []),
       ...(loginId ? [{ loginId: loginId }] : []),
     ],
-  }).lean() as { _id: unknown; name?: string } | null;
+  }).lean() as { _id: unknown; name?: string; qrCode?: string } | null;
 
   if (!cafe) {
     return (
@@ -90,8 +93,17 @@ export default async function AdminDashboard() {
     );
   }
 
+  // 🛡️ ObjectId & String Safe Matching (Ensures new jobs match immediately)
+  // 🛡️ Safely parse only valid 24-char hex strings into ObjectIds
+  const cafeObjectIds = [
+    cafe._id,
+    mongoose.Types.ObjectId.isValid(String(cafeId)) ? new mongoose.Types.ObjectId(String(cafeId)) : null,
+    mongoose.Types.ObjectId.isValid(String(cafe.qrCode)) ? new mongoose.Types.ObjectId(String(cafe.qrCode)) : null,
+  ].filter(Boolean);
+
+  // 🚀 Direct ObjectId Query (No String Mismatch = Zero CastError)
   const rawJobs = await PrintJob.find({
-    cafeId: cafe._id,
+    cafeId: { $in: cafeObjectIds }
   })
     .sort({ createdAt: -1 })
     .limit(50)
@@ -116,9 +128,21 @@ export default async function AdminDashboard() {
   const paid = jobs.filter(j => ['queued', 'pending'].includes(j.printStatus) && j.paymentStatus === 'paid');
   const inProgress = jobs.filter(j => j.printStatus === 'printing');
   const done = jobs.filter(j => ['completed', 'cancelled', 'failed'].includes(j.printStatus));
-
+  // Simple script to request notification permission:
+const requestNotification = () => {
+  if ('Notification' in window) {
+    Notification.requestPermission().then((permission) => {
+      if (permission === 'granted') {
+        alert('Notification permission granted!');
+      }
+    });
+  }
+};
   return (
     <Layout>
+      {/* 🚀 Active Silent Auto-Refresh Header (Har 3 sec mein page auto-sync karega) */}
+      <PusherListener cafeId={String(cafe._id)} />
+
       <div className={styles.header}>
         <div>
           <h1 className={styles.title}>Admin Dashboard</h1>

@@ -8,7 +8,7 @@ import PrintJob from '@/models/PrintJob';
 import { apiError, apiSuccess, internalError, isRequiredString, isRequiredNumber, isEnum } from '@/lib/api-utils';
 import { validateJobPricing } from '@/lib/job-operations';
 import { uploadDocument, deleteDocument } from '@/lib/cloudinary';
-
+import { pusherServer } from '@/lib/pusherServer';
 const DEFAULT_PRICES = { bw: 2, color: 10 };
 const ALLOWED_PAPER_SIZES = ['A4', 'A3', 'Letter'] as const;
 const ALLOWED_COLOR_MODES = ['bw', 'color'] as const;
@@ -275,6 +275,16 @@ export async function POST(request: NextRequest) {
         paymentStatus: 'pending',
         printStatus: 'queued',
       });
+      try {
+        await pusherServer.trigger(`cafe-${cafe._id.toString()}`, 'new-print-job', {
+          jobId: newJob._id.toString(),
+          jobNumber: newJob.jobNumber,
+          totalAmount: newJob.totalAmount,
+          createdAt: newJob.createdAt,
+        });
+      } catch (pusherErr) {
+        console.warn('[Pusher] Event trigger error:', pusherErr);
+      }
     } catch (error) {
       if (uploadedCloudAsset?.public_id) {
         await deleteDocument(uploadedCloudAsset.public_id, uploadedCloudAsset.resource_type).catch(() => {});

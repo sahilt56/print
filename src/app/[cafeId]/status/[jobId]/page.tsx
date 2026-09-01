@@ -19,7 +19,7 @@ export default async function StatusPage({
 
   const isObjectId = mongoose.Types.ObjectId.isValid(jobId);
 
-  // Direct fetch by Mongo _id OR jobNumber without strict cafe filter block
+  // Direct fetch by Mongo _id OR jobNumber
   const rawJob = await PrintJob.findOne({
     $or: [
       ...(isObjectId ? [{ _id: jobId }] : []),
@@ -38,12 +38,25 @@ export default async function StatusPage({
     );
   }
 
+  const jobDoc = rawJob as any;
+
+  // 🔢 Calculate Live Queue Position (Kitne log aapse pehle hain)
+  let queuePosition = 0;
+  if (jobDoc.printStatus === 'queued' || jobDoc.printStatus === 'pending') {
+    queuePosition = await PrintJob.countDocuments({
+      cafeId: jobDoc.cafeId,
+      printStatus: { $in: ['queued', 'pending'] },
+      createdAt: { $lte: jobDoc.createdAt },
+    });
+  }
+
   // Convert raw Mongo doc to UI object safely
   const job = {
-    id: (rawJob as any)._id.toString(),
-    jobNumber: (rawJob as any).jobNumber || 'PRINT-REQ',
-    totalAmount: (rawJob as any).totalAmount || (rawJob as any).amount || 0,
-    paymentMethod: (rawJob as any).paymentMethod || (rawJob as any).paymentStatus || 'cash',
+    id: jobDoc._id.toString(),
+    jobNumber: jobDoc.jobNumber || 'PRINT-REQ',
+    totalAmount: jobDoc.totalAmount || jobDoc.amount || 0,
+    paymentMethod: jobDoc.paymentMethod || jobDoc.paymentStatus || 'cash',
+    printStatus: jobDoc.printStatus || 'queued',
   };
 
   return (
@@ -51,6 +64,31 @@ export default async function StatusPage({
       <div className={styles.container}>
         <div className={styles.successIcon}>✓</div>
         <h1 className={styles.title}>Print Request Submitted</h1>
+
+        {/* 🚀 Live Queue Position Banner */}
+        {job.printStatus === 'completed' ? (
+          <div style={{ background: '#dcfce7', color: '#166534', padding: '1rem', borderRadius: '12px', textAlign: 'center', marginBottom: '1rem', width: '100%', maxWidth: '400px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.1rem' }}>🎉 Print Completed / Ready!</h3>
+            <p style={{ margin: '4px 0 0', fontSize: '0.85rem' }}>Aapka print nikal chuka hai, counter se collect karein.</p>
+          </div>
+        ) : job.printStatus === 'cancelled' ? (
+          <div style={{ background: '#fee2e2', color: '#991b1b', padding: '1rem', borderRadius: '12px', textAlign: 'center', marginBottom: '1rem', width: '100%', maxWidth: '400px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.1rem' }}>❌ Print Cancelled</h3>
+            <p style={{ margin: '4px 0 0', fontSize: '0.85rem' }}>Yeh print request cancel kar di gayi hai.</p>
+          </div>
+        ) : (
+          <div style={{ background: 'var(--card-bg, #f8fafc)', border: '1px solid var(--border, #e2e8f0)', padding: '1rem', borderRadius: '12px', textAlign: 'center', marginBottom: '1rem', width: '100%', maxWidth: '400px' }}>
+            <p style={{ fontSize: '0.9rem', color: '#070808', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>
+              Apne Print Ke status ko Check karne ke liye page ko refresh kare.
+            </p>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary, #2563eb)', margin: '6px 0' }}>
+              {queuePosition === 1 ? '🎉 Aapka number abhi hai!' : `Aapse pehle ${queuePosition - 1} log hain`}
+            </h2>
+            <p style={{ fontSize: '1.5rem', color: '#e80505', margin: 0 }}>
+              Queue Position: <b>#{queuePosition}</b>
+            </p>
+          </div>
+        )}
 
         <Card className={styles.detailsCard}>
           <div className={styles.jobNoRow}>
