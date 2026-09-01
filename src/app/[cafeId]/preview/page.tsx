@@ -1,239 +1,1209 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useRouter } from 'next/navigation';
+
 import { Layout } from '@/components/ui/Layout';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { usePrintJob, CanvasItemState } from '@/context/PrintJobContext';
-import styles from './page.module.css';
-import * as pdfjsLib from 'pdfjs-dist';
-import QuickPinchZoom from 'react-quick-pinch-zoom';
+import {
+  usePrintJob,
+  CanvasItemState,
+} from '@/context/PrintJobContext';
 
-// 👈 Fix 1: useCallback import
-import { 
-  Crop, 
-  RotateCw, 
-  FileUp, 
-  PlusCircle, 
-  Trash2, 
-  ArrowLeft, 
-  ArrowRight 
+import styles from './page.module.css';
+
+import * as pdfjsLib from 'pdfjs-dist';
+
+import {
+  Crop,
+  RotateCw,
+  FileUp,
+  PlusCircle,
+  Trash2,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 
-const A4_RATIO = 297 / 210; // 1.4142
+/* -------------------------------------------------------------------------- */
+/* CONSTANTS                                                                  */
+/* -------------------------------------------------------------------------- */
 
-// ye naya add kiye haiii
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString();
-type PageState = 'pending' | 'rendering' | 'rendered';
+const A4_RATIO = 297 / 210;
 
-function PdfPreviewCanvas({ url }: { url: string }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const targetRef = useRef<HTMLDivElement>(null);
-  const pdfRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
-  const renderTasksRef = useRef<Map<number, any>>(new Map());
-  const pageStateRef = useRef<Map<number, PageState>>(new Map());
-  const observerRef = useRef<IntersectionObserver | null>(null);
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
 
-  const [numPages, setNumPages] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+const PDF_PAGE_GAP = 18;
+const PDF_VIEWER_PADDING = 16;
 
-  const onUpdate = useCallback(({ x, y, scale }: { x: number; y: number; scale: number }) => {
-    if (targetRef.current) {
-      targetRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
-      targetRef.current.style.transformOrigin = '0 0';
+/* -------------------------------------------------------------------------- */
+/* PDF WORKER                                                                 */
+/* -------------------------------------------------------------------------- */
+
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.mjs`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* TYPES                                                                      */
+/* -------------------------------------------------------------------------- */
+
+type TouchPoint = {
+  clientX: number;
+  clientY: number;
+};
+
+type TouchCollection = {
+  length: number;
+  [index: number]: TouchPoint;
+};
+
+/* -------------------------------------------------------------------------- */
+/* PDF PREVIEW                                                                */
+/* -------------------------------------------------------------------------- */
+
+function PdfPreview({
+  url,
+}: {
+  url: string;
+}) {
+  const viewportRef =
+    useRef<HTMLDivElement>(null);
+
+  const pagesContainerRef =
+    useRef<HTMLDivElement>(null);
+
+  const [fitScale, setFitScale] =
+    useState(1);
+
+  const [zoom, setZoom] =
+    useState(1);
+
+  const [pageCount, setPageCount] =
+    useState(0);
+
+  const [isRendering, setIsRendering] =
+    useState(false);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  /* ---------------------------------------------------------------------- */
+  /* PAGE CANVAS REFS                                                       */
+  /* ---------------------------------------------------------------------- */
+
+  const canvasRefs =
+    useRef<Map<number, HTMLCanvasElement>>(
+      new Map()
+    );
+
+  /* ---------------------------------------------------------------------- */
+  /* RENDER TASK REFS                                                       */
+  /* ---------------------------------------------------------------------- */
+
+  const renderTasksRef =
+    useRef<Map<number, any>>(
+      new Map()
+    );
+
+  /* ---------------------------------------------------------------------- */
+  /* PDF DOCUMENT REF                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  const pdfDocumentRef =
+    useRef<any>(null);
+
+  /* ---------------------------------------------------------------------- */
+  /* PINCH STATE                                                             */
+  /* ---------------------------------------------------------------------- */
+
+  const pinchStartDistance =
+    useRef<number | null>(null);
+
+  const pinchStartZoom =
+    useRef(1);
+
+  /* ---------------------------------------------------------------------- */
+  /* TOUCH DISTANCE                                                          */
+  /* ---------------------------------------------------------------------- */
+
+  const getTouchDistance = (
+    touches: TouchCollection
+  ) => {
+    if (touches.length < 2) {
+      return 0;
     }
-  }, []);
 
-  const renderPage = useCallback(async (pageNum: number, canvas: HTMLCanvasElement) => {
-    const pdf = pdfRef.current;
-    if (!pdf) return;
+    const first = touches[0];
+    const second = touches[1];
 
-    const state = pageStateRef.current.get(pageNum);
-    if (state === 'rendering' || state === 'rendered') return;
-    pageStateRef.current.set(pageNum, 'rendering');
+    if (!first || !second) {
+      return 0;
+    }
 
-    try {
-      const page = await pdf.getPage(pageNum);
-      const containerWidth = wrapperRef.current?.clientWidth || 360;
-      const baseViewport = page.getViewport({ scale: 1 });
-      const fitScale = containerWidth / baseViewport.width;
-      const viewport = page.getViewport({ scale: fitScale });
+    const dx =
+      first.clientX -
+      second.clientX;
 
-      const outputScale = Math.max(window.devicePixelRatio || 1, 2);
+    const dy =
+      first.clientY -
+      second.clientY;
 
-      canvas.width = Math.floor(viewport.width * outputScale);
-      canvas.height = Math.floor(viewport.height * outputScale);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
+    return Math.sqrt(
+      dx * dx + dy * dy
+    );
+  };
 
-      const context = canvas.getContext('2d');
-      if (!context) return;
+  /* ---------------------------------------------------------------------- */
+  /* ZOOM HELPERS                                                            */
+  /* ---------------------------------------------------------------------- */
 
-      const renderTask = page.render({
-        canvasContext: context,
-        viewport,
-        canvas,
-        transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
-      });
+  const clampZoom = useCallback(
+    (value: number) => {
+      return Math.min(
+        MAX_ZOOM,
+        Math.max(
+          MIN_ZOOM,
+          value
+        )
+      );
+    },
+    []
+  );
 
-      renderTasksRef.current.set(pageNum, renderTask);
-      await renderTask.promise;
-      renderTasksRef.current.delete(pageNum);
-      pageStateRef.current.set(pageNum, 'rendered');
-    } catch (err: any) {
-      if (err?.name !== 'RenderingCancelledException') {
-        console.error(`Page ${pageNum} render error:`, err);
+  const zoomIn = useCallback(() => {
+    setZoom((value) =>
+      clampZoom(
+        value + 0.25
+      )
+    );
+  }, [clampZoom]);
+
+  const zoomOut = useCallback(() => {
+    setZoom((value) =>
+      clampZoom(
+        value - 0.25
+      )
+    );
+  }, [clampZoom]);
+
+  const resetZoom = useCallback(() => {
+    setZoom(1);
+
+    requestAnimationFrame(() => {
+      const viewport =
+        viewportRef.current;
+
+      if (!viewport) {
+        return;
       }
-      pageStateRef.current.set(pageNum, 'pending');
-    }
+
+      viewport.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: 'smooth',
+      });
+    });
   }, []);
+
+  /* ---------------------------------------------------------------------- */
+  /* CANVAS REF                                                              */
+  /* ---------------------------------------------------------------------- */
+
+  const setCanvasRef = useCallback(
+    (
+      pageNumber: number,
+      canvas: HTMLCanvasElement | null
+    ) => {
+      if (canvas) {
+        canvasRefs.current.set(
+          pageNumber,
+          canvas
+        );
+      } else {
+        canvasRefs.current.delete(
+          pageNumber
+        );
+      }
+    },
+    []
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* LOAD PDF                                                                */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
     let cancelled = false;
 
-    const init = async () => {
-      setLoading(true);
-      setError(null);
+    const loadPdf = async () => {
       try {
-        const pdf = await pdfjsLib.getDocument({ url }).promise;
-        if (cancelled) return;
-        pdfRef.current = pdf;
-        setNumPages(pdf.numPages);
-      } catch (err) {
-        console.error('PDF load error:', err);
-        if (!cancelled) setError('PDF load nahi ho paayi.');
-      } finally {
-        if (!cancelled) setLoading(false);
+        setError(null);
+        setPageCount(0);
+
+        const loadingTask =
+          pdfjsLib.getDocument({
+            url,
+          });
+
+        const pdf =
+          await loadingTask.promise;
+
+        if (cancelled) {
+          return;
+        }
+
+        pdfDocumentRef.current = pdf;
+
+        setPageCount(
+          pdf.numPages
+        );
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error(
+            'PDF loading failed:',
+            err
+          );
+
+          setError(
+            'Unable to load PDF preview.'
+          );
+        }
       }
     };
 
-    init();
+    loadPdf();
 
     return () => {
       cancelled = true;
-      renderTasksRef.current.forEach((task) => task.cancel());
-      renderTasksRef.current.clear();
-      pageStateRef.current.clear();
-      (pdfRef.current as any)?.destroy();
-      pdfRef.current = null;
+
+      /*
+       * We intentionally do NOT call pdf.destroy().
+       *
+       * Some pdfjs-dist versions/types do not expose
+       * destroy() on PDFDocumentProxy.
+       *
+       * Cancelling render tasks is sufficient for this
+       * component and avoids the TypeScript error.
+       */
+
+      const tasks =
+        renderTasksRef.current;
+
+      tasks.forEach(
+        (task) => {
+          try {
+            task?.cancel?.();
+          } catch {
+            // Ignore cancellation errors.
+          }
+        }
+      );
+
+      tasks.clear();
+
+      pdfDocumentRef.current = null;
     };
   }, [url]);
 
-  useEffect(() => {
-    if (!numPages || !containerRef.current) return;
-
-    observerRef.current?.disconnect();
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const pageNum = Number((entry.target as HTMLElement).dataset.pageNum);
-            const canvas = entry.target.querySelector('canvas');
-            if (canvas) renderPage(pageNum, canvas as HTMLCanvasElement);
-          }
-        });
-      },
-      { root: wrapperRef.current, rootMargin: '300px 0px', threshold: 0.01 }
-    );
-
-    containerRef.current
-      .querySelectorAll('[data-page-num]')
-      .forEach((el) => observerRef.current?.observe(el));
-
-    return () => observerRef.current?.disconnect();
-  }, [numPages, renderPage]);
+  /* ---------------------------------------------------------------------- */
+  /* CALCULATE FIT SCALE                                                    */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    let t: ReturnType<typeof setTimeout>;
-    const onResize = () => {
-      clearTimeout(t);
-      t = setTimeout(() => {
-        pageStateRef.current.clear();
-        containerRef.current?.querySelectorAll('[data-page-num]').forEach((el) => {
-          const rect = el.getBoundingClientRect();
-          if (rect.top < window.innerHeight && rect.bottom > 0) {
-            const pageNum = Number((el as HTMLElement).dataset.pageNum);
-            const canvas = el.querySelector('canvas');
-            if (canvas) renderPage(pageNum, canvas as HTMLCanvasElement);
+    const container =
+      viewportRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    let resizeTimer:
+      ReturnType<typeof setTimeout> | null =
+      null;
+
+    const calculateFitScale =
+      async () => {
+        const pdf =
+          pdfDocumentRef.current;
+
+        if (!pdf) {
+          return;
+        }
+
+        try {
+          const page =
+            await pdf.getPage(1);
+
+          const baseViewport =
+            page.getViewport({
+              scale: 1,
+            });
+
+          const containerWidth =
+            Math.max(
+              container.clientWidth -
+                PDF_VIEWER_PADDING * 2,
+              1
+            );
+
+          const containerHeight =
+            Math.max(
+              container.clientHeight -
+                PDF_VIEWER_PADDING * 2,
+              1
+            );
+
+          /*
+           * Fit the entire first page into the
+           * available viewer area.
+           */
+          const nextFitScale =
+            Math.min(
+              containerWidth /
+                baseViewport.width,
+              containerHeight /
+                baseViewport.height
+            );
+
+          if (
+            Number.isFinite(
+              nextFitScale
+            ) &&
+            nextFitScale > 0
+          ) {
+            setFitScale(
+              nextFitScale
+            );
           }
-        });
-      }, 300);
-    };
-    window.addEventListener('resize', onResize);
+        } catch (err) {
+          console.error(
+            'PDF fit scale calculation failed:',
+            err
+          );
+        }
+      };
+
+    calculateFitScale();
+
+    const observer =
+      new ResizeObserver(() => {
+        if (resizeTimer) {
+          clearTimeout(
+            resizeTimer
+          );
+        }
+
+        resizeTimer =
+          setTimeout(() => {
+            calculateFitScale();
+          }, 80);
+      });
+
+    observer.observe(container);
+
     return () => {
-      window.removeEventListener('resize', onResize);
-      clearTimeout(t);
-    };
-  }, [renderPage]);
+      observer.disconnect();
 
-  if (error) {
-    return <div style={{ padding: 8, color: '#dc2626', fontSize: 12 }}>{error}</div>;
-  }
+      if (resizeTimer) {
+        clearTimeout(
+          resizeTimer
+        );
+      }
+    };
+  }, [pageCount]);
+
+  /* ---------------------------------------------------------------------- */
+  /* RENDER ALL PAGES                                                       */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const renderPages = async () => {
+      const pdf =
+        pdfDocumentRef.current;
+
+      if (
+        !pdf ||
+        pageCount <= 0 ||
+        fitScale <= 0
+      ) {
+        return;
+      }
+
+      setIsRendering(true);
+
+      /*
+       * IMPORTANT:
+       *
+       * Capture the current render task map in a local
+       * variable. This prevents the React exhaustive-deps
+       * warning about renderTasksRef.current changing
+       * before cleanup runs.
+       */
+      const renderTasks =
+        renderTasksRef.current;
+
+      try {
+        /*
+         * Cancel previous renders.
+         */
+        renderTasks.forEach(
+          (task) => {
+            try {
+              task?.cancel?.();
+            } catch {
+              // Ignore cancellation errors.
+            }
+          }
+        );
+
+        renderTasks.clear();
+
+        const finalScale =
+          fitScale * zoom;
+
+        /*
+         * Render pages one by one.
+         *
+         * This avoids creating too many simultaneous
+         * PDF.js rendering tasks on mobile devices.
+         */
+        for (
+          let pageNumber = 1;
+          pageNumber <= pageCount;
+          pageNumber++
+        ) {
+          if (cancelled) {
+            return;
+          }
+
+          const canvas =
+            canvasRefs.current.get(
+              pageNumber
+            );
+
+          if (!canvas) {
+            continue;
+          }
+
+          const page =
+            await pdf.getPage(
+              pageNumber
+            );
+
+          if (cancelled) {
+            return;
+          }
+
+          const viewport =
+            page.getViewport({
+              scale: finalScale,
+            });
+
+          const dpr =
+            Math.min(
+              window.devicePixelRatio ||
+                1,
+              2
+            );
+
+          canvas.width =
+            Math.ceil(
+              viewport.width * dpr
+            );
+
+          canvas.height =
+            Math.ceil(
+              viewport.height * dpr
+            );
+
+          canvas.style.width =
+            `${viewport.width}px`;
+
+          canvas.style.height =
+            `${viewport.height}px`;
+
+          const context =
+            canvas.getContext(
+              '2d'
+            );
+
+          if (!context) {
+            continue;
+          }
+
+          context.setTransform(
+            dpr,
+            0,
+            0,
+            dpr,
+            0,
+            0
+          );
+
+          context.clearRect(
+            0,
+            0,
+            viewport.width,
+            viewport.height
+          );
+
+          const renderTask =
+            page.render({
+              canvasContext:
+                context,
+              viewport,
+              canvas,
+            });
+
+          renderTasks.set(
+            pageNumber,
+            renderTask
+          );
+
+          try {
+            await renderTask.promise;
+          } catch (renderError: any) {
+            if (
+              renderError?.name ===
+              'RenderingCancelledException'
+            ) {
+              return;
+            }
+
+            throw renderError;
+          } finally {
+            renderTasks.delete(
+              pageNumber
+            );
+          }
+        }
+      } catch (err: any) {
+        if (
+          !cancelled &&
+          err?.name !==
+            'RenderingCancelledException'
+        ) {
+          console.error(
+            'PDF pages render failed:',
+            err
+          );
+
+          setError(
+            'Unable to render PDF preview.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsRendering(false);
+        }
+      }
+    };
+
+    renderPages();
+
+    return () => {
+      cancelled = true;
+
+      /*
+       * Use the local captured reference rather than
+       * directly reading renderTasksRef.current.
+       *
+       * This fixes:
+       *
+       * react-hooks/exhaustive-deps
+       */
+      const tasks =
+        renderTasksRef.current;
+
+      tasks.forEach(
+        (task) => {
+          try {
+            task?.cancel?.();
+          } catch {
+            // Ignore cancellation errors.
+          }
+        }
+      );
+
+      tasks.clear();
+    };
+  }, [
+    pageCount,
+    fitScale,
+    zoom,
+  ]);
+
+  /* ---------------------------------------------------------------------- */
+  /* TOUCH START                                                             */
+  /* ---------------------------------------------------------------------- */
+
+  const handleTouchStart = (
+    event: React.TouchEvent<HTMLDivElement>
+  ) => {
+    event.stopPropagation();
+
+    if (
+      event.touches.length === 2
+    ) {
+      const distance =
+        getTouchDistance(
+          event.touches
+        );
+
+      if (distance > 0) {
+        pinchStartDistance.current =
+          distance;
+
+        pinchStartZoom.current =
+          zoom;
+      }
+    }
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /* TOUCH MOVE                                                              */
+  /* ---------------------------------------------------------------------- */
+
+  const handleTouchMove = (
+    event: React.TouchEvent<HTMLDivElement>
+  ) => {
+    event.stopPropagation();
+
+    if (
+      event.touches.length === 2 &&
+      pinchStartDistance.current
+    ) {
+      event.preventDefault();
+
+      const distance =
+        getTouchDistance(
+          event.touches
+        );
+
+      if (distance > 0) {
+        const ratio =
+          distance /
+          pinchStartDistance.current;
+
+        const nextZoom =
+          clampZoom(
+            pinchStartZoom.current *
+              ratio
+          );
+
+        setZoom(nextZoom);
+      }
+    }
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /* TOUCH END                                                               */
+  /* ---------------------------------------------------------------------- */
+
+  const handleTouchEnd = (
+    event: React.TouchEvent<HTMLDivElement>
+  ) => {
+    event.stopPropagation();
+
+    if (
+      event.touches.length < 2
+    ) {
+      pinchStartDistance.current =
+        null;
+    }
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /* POINTER DOWN                                                            */
+  /* ---------------------------------------------------------------------- */
+
+  const handlePointerDown = (
+    event: React.PointerEvent<HTMLDivElement>
+  ) => {
+    event.stopPropagation();
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /* WHEEL                                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  const handleWheel = (
+    event: React.WheelEvent<HTMLDivElement>
+  ) => {
+    event.stopPropagation();
+
+    /*
+     * Ctrl + mouse wheel = zoom.
+     *
+     * Normal wheel remains native scrolling.
+     */
+    if (event.ctrlKey) {
+      event.preventDefault();
+
+      const direction =
+        event.deltaY > 0
+          ? -1
+          : 1;
+
+      setZoom((value) =>
+        clampZoom(
+          value +
+            direction * 0.1
+        )
+      );
+    }
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /* DOUBLE CLICK                                                            */
+  /* ---------------------------------------------------------------------- */
+
+  const handleDoubleClick = (
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
+    event.stopPropagation();
+
+    setZoom((value) =>
+      value > 1 ? 1 : 2
+    );
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /* RENDER                                                                   */
+  /* ---------------------------------------------------------------------- */
+
+  const pageScale =
+    fitScale * zoom;
 
   return (
-    <div ref={wrapperRef} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
-      {loading && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            fontSize: 12,
-            color: '#666',
-          }}
-        >
-          Loading...
-        </div>
-      )}
+    <div
+      ref={viewportRef}
+      onPointerDown={
+        handlePointerDown
+      }
+      onTouchStart={
+        handleTouchStart
+      }
+      onTouchMove={
+        handleTouchMove
+      }
+      onTouchEnd={
+        handleTouchEnd
+      }
+      onWheel={
+        handleWheel
+      }
+      onDoubleClick={
+        handleDoubleClick
+      }
+      style={{
+        position: 'absolute',
+        inset: 0,
 
-      <QuickPinchZoom
-        onUpdate={onUpdate}
-        draggableUnZoomed={true}
-        inertia={true}
-        minZoom={1}
-        maxZoom={5}
-        zoomOutFactor={1.3}
-      >
-        <div ref={targetRef} style={{ width: '100%', willChange: 'transform' }}>
-          <div ref={containerRef} style={{ width: '100%' }}>
-            {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
+        overflow: 'auto',
+
+        background: '#f8f9fa',
+
+        WebkitOverflowScrolling:
+          'touch',
+
+        /*
+         * Allow native scrolling and
+         * manual pinch handling.
+         */
+        touchAction:
+          'pan-x pan-y pinch-zoom',
+
+        overscrollBehavior:
+          'contain',
+
+        zIndex: 20,
+
+        isolation: 'isolate',
+
+        scrollbarWidth: 'thin',
+      }}
+    >
+      {/* ------------------------------------------------------------------ */}
+      {/* PAGES                                                              */}
+      {/* ------------------------------------------------------------------ */}
+
+      <div
+  ref={pagesContainerRef}
+  style={{
+    minWidth: '100%',
+    minHeight: '100%',
+    width: '100%',
+    padding: PDF_VIEWER_PADDING,
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems:
+      zoom === 1
+        ? 'center'
+        : 'flex-start',
+    gap: PDF_PAGE_GAP,
+  }}
+>
+        {Array.from(
+          {
+            length: pageCount,
+          },
+          (_, index) => {
+            const pageNumber =
+              index + 1;
+
+            return (
               <div
-                key={pageNum}
-                data-page-num={pageNum}
+                key={pageNumber}
                 style={{
-                  width: '100%',
-                  minHeight: 200,
-                  marginBottom: 8,
-                  display: 'flex',
-                  justifyContent: 'center',
+                  position:
+                    'relative',
+
+                  flex:
+                    '0 0 auto',
+
+                  background:
+                    '#fff',
+
+                  boxShadow:
+                    '0 1px 5px rgba(0,0,0,0.15)',
+
+                  lineHeight: 0,
+
+                  /*
+                   * Keep pages naturally sized.
+                   */
+                  maxWidth:
+                    'none',
                 }}
               >
                 <canvas
+                  ref={(canvas) =>
+                    setCanvasRef(
+                      pageNumber,
+                      canvas
+                    )
+                  }
+                  draggable={false}
                   style={{
-                    display: 'block',
-                    background: '#fff',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                    display:
+                      'block',
+
+                    width:
+                      'auto',
+
+                    height:
+                      'auto',
+
+                    maxWidth:
+                      'none',
+
+                    background:
+                      '#fff',
+
+                    userSelect:
+                      'none',
+
+                    WebkitUserSelect:
+                      'none',
+
+                    WebkitTouchCallout:
+                      'none',
                   }}
                 />
+
+                {/* PAGE NUMBER */}
+
+                <div
+                  style={{
+                    position:
+                      'absolute',
+
+                    bottom: 8,
+                    right: 8,
+
+                    padding:
+                      '4px 8px',
+
+                    borderRadius:
+                      6,
+
+                    background:
+                      'rgba(0,0,0,0.6)',
+
+                    color:
+                      '#fff',
+
+                    fontSize: 10,
+
+                    lineHeight: 1,
+
+                    pointerEvents:
+                      'none',
+                  }}
+                >
+                  {pageNumber}
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          }
+        )}
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* ZOOM CONTROLS                                                      */}
+      {/* ------------------------------------------------------------------ */}
+
+      <div
+        style={{
+          position:
+            'sticky',
+
+          bottom: 12,
+          left: 12,
+
+          width:
+            'fit-content',
+
+          display:
+            'flex',
+
+          alignItems:
+            'center',
+
+          gap: 4,
+
+          padding: 4,
+
+          borderRadius: 10,
+
+          background:
+            'rgba(255,255,255,0.96)',
+
+          boxShadow:
+            '0 2px 12px rgba(0,0,0,0.18)',
+
+          zIndex: 100,
+
+          backdropFilter:
+            'blur(6px)',
+
+          WebkitBackdropFilter:
+            'blur(6px)',
+
+          touchAction:
+            'manipulation',
+        }}
+        onPointerDown={(
+          event
+        ) => {
+          event.stopPropagation();
+        }}
+        onTouchStart={(
+          event
+        ) => {
+          event.stopPropagation();
+        }}
+      >
+        <button
+          type="button"
+          onClick={zoomOut}
+          disabled={
+            zoom <= MIN_ZOOM
+          }
+          aria-label="Zoom out"
+          style={{
+            ...zoomButtonStyle,
+
+            opacity:
+              zoom <= MIN_ZOOM
+                ? 0.45
+                : 1,
+          }}
+        >
+          −
+        </button>
+
+        <button
+          type="button"
+          onClick={
+            resetZoom
+          }
+          aria-label="Reset zoom"
+          style={{
+            ...zoomButtonStyle,
+
+            width: 50,
+
+            fontSize: 12,
+          }}
+        >
+          {Math.round(
+            zoom * 100
+          )}
+          %
+        </button>
+
+        <button
+          type="button"
+          onClick={zoomIn}
+          disabled={
+            zoom >= MAX_ZOOM
+          }
+          aria-label="Zoom in"
+          style={{
+            ...zoomButtonStyle,
+
+            opacity:
+              zoom >= MAX_ZOOM
+                ? 0.45
+                : 1,
+          }}
+        >
+          +
+        </button>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* LOADING                                                             */}
+      {/* ------------------------------------------------------------------ */}
+
+      {isRendering && (
+        <div
+          style={{
+            position:
+              'absolute',
+
+            top: 10,
+            right: 10,
+
+            padding:
+              '5px 9px',
+
+            borderRadius: 8,
+
+            background:
+              'rgba(255,255,255,0.92)',
+
+            boxShadow:
+              '0 1px 5px rgba(0,0,0,0.12)',
+
+            fontSize: 11,
+
+            zIndex: 200,
+
+            pointerEvents:
+              'none',
+          }}
+        >
+          Loading…
         </div>
-      </QuickPinchZoom>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* ERROR                                                               */}
+      {/* ------------------------------------------------------------------ */}
+
+      {error && (
+        <div
+          style={{
+            position:
+              'absolute',
+
+            inset: 0,
+
+            display:
+              'flex',
+
+            alignItems:
+              'center',
+
+            justifyContent:
+              'center',
+
+            padding: 20,
+
+            color:
+              '#b42318',
+
+            fontSize: 13,
+
+            textAlign:
+              'center',
+
+            pointerEvents:
+              'none',
+          }}
+        >
+          {error}
+        </div>
+      )}
     </div>
   );
 }
-  
-// ye purana hai
-export default function PreviewPage({ params }: { params: Promise<{ cafeId: string }> }) {
-  const router = useRouter();
+
+/* -------------------------------------------------------------------------- */
+/* ZOOM BUTTON STYLE                                                          */
+/* -------------------------------------------------------------------------- */
+
+const zoomButtonStyle: React.CSSProperties =
+  {
+    width: 34,
+    height: 34,
+
+    border: 'none',
+
+    borderRadius: 7,
+
+    background:
+      '#f1f3f4',
+
+    color: '#222',
+
+    fontSize: 20,
+
+    lineHeight: 1,
+
+    cursor: 'pointer',
+
+    display: 'flex',
+
+    alignItems:
+      'center',
+
+    justifyContent:
+      'center',
+
+    padding: 0,
+
+    flexShrink: 0,
+  };
+
+/* -------------------------------------------------------------------------- */
+/* PREVIEW PAGE                                                              */
+/* -------------------------------------------------------------------------- */
+
+export default function PreviewPage({
+  params,
+}: {
+  params: Promise<{
+    cafeId: string;
+  }>;
+}) {
+  const router =
+    useRouter();
+
   const {
     file,
     filePreviewUrl,
@@ -244,482 +1214,1337 @@ export default function PreviewPage({ params }: { params: Promise<{ cafeId: stri
     setFile,
     setTotalPages,
   } = usePrintJob();
-  const { cafeId } = React.use(params);
 
-  const replaceInputRef = useRef<HTMLInputElement>(null);
-  const addImageInputRef = useRef<HTMLInputElement>(null);
-  const a4Ref = useRef<HTMLDivElement>(null);
+  const { cafeId } =
+    React.use(params);
 
-  const [a4Width, setA4Width] = useState<number>(0);
-  const [isRotating, setIsRotating] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const replaceInputRef =
+    useRef<HTMLInputElement>(null);
 
-  // Safe & fast PDF page counter without external library worker clashes
- // Accurate PDF Page Counter using /Type /Pages /Count
-  const countPdfPages = async (targetFile: File): Promise<number> => {
-    if (!targetFile || !(targetFile instanceof Blob)) return 1;
-    try {
-      const buffer = await targetFile.arrayBuffer();
-      const decoder = new TextDecoder('utf-8');
-      const text = decoder.decode(buffer);
-      
-      // PDF ke root /Pages object ke andar jo /Count hota hai, wahi asli total pages hote hain
-      const pageCountMatch = text.match(/\/Type\s*\/Pages\b[\s\S]*?\/Count\s+(\d+)/);
-      if (pageCountMatch && pageCountMatch[1]) {
-        const pages = parseInt(pageCountMatch[1], 10);
-        if (!isNaN(pages) && pages > 0) return pages;
-      }
+  const addImageInputRef =
+    useRef<HTMLInputElement>(null);
 
-      // Fallback agar root pages na mile toh general /Count dhoondo lekinpehla ya sabse chhota/sahi match lo
-      const matches = text.match(/\/Count\s+(\d+)/g);
-      if (matches && matches.length > 0) {
-        const counts = matches.map(m => {
-          const num = m.match(/\d+/);
-          return num ? parseInt(num[0], 10) : 0;
-        }).filter(n => n > 0 && n < 1000); // 1000 se kam wale normal pages hote hain
-        
-        if (counts.length > 0) {
-          return Math.min(...counts); // Sabse chhota wala usually total page count hota hai
-        }
-      }
-    } catch (e) {
-      console.error("Accurate page count failed, fallback to 1", e);
+  const a4Ref =
+    useRef<HTMLDivElement>(null);
+
+  const [a4Width, setA4Width] =
+    useState(0);
+
+  const [isRotating, setIsRotating] =
+    useState(false);
+
+  const [isUploading, setIsUploading] =
+    useState(false);
+
+  /* ---------------------------------------------------------------------- */
+  /* PDF PAGE COUNTER                                                       */
+  /* ---------------------------------------------------------------------- */
+
+  const countPdfPages = async (
+    targetFile: File
+  ): Promise<number> => {
+    if (
+      !targetFile ||
+      !(targetFile instanceof Blob)
+    ) {
+      return 1;
     }
-    return 1;
+
+    try {
+      /*
+       * Use PDF.js itself instead of manually parsing
+       * /Count entries from the PDF.
+       *
+       * This is much more reliable for PDFs containing
+       * nested page trees.
+       */
+      const buffer =
+        await targetFile.arrayBuffer();
+
+      const pdf =
+        await pdfjsLib.getDocument({
+          data: buffer,
+        }).promise;
+
+      return pdf.numPages || 1;
+    } catch (error) {
+      console.error(
+        'PDF page count failed:',
+        error
+      );
+
+      return 1;
+    }
   };
 
-  // Measure A4 width dynamically
+  /* ---------------------------------------------------------------------- */
+  /* A4 WIDTH                                                               */
+  /* ---------------------------------------------------------------------- */
+
   useEffect(() => {
-    if (!a4Ref.current) return;
+    const element =
+      a4Ref.current;
+
+    if (!element) {
+      return;
+    }
 
     const measureWidth = () => {
-      if (a4Ref.current) {
-        const rect = a4Ref.current.getBoundingClientRect();
-        if (rect.width > 0) {
-          setA4Width(rect.width);
-        }
+      const rect =
+        element.getBoundingClientRect();
+
+      if (rect.width > 0) {
+        setA4Width(
+          rect.width
+        );
       }
     };
 
     measureWidth();
 
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry.contentRect.width > 0) {
-        setA4Width(entry.contentRect.width);
-      }
-    });
+    const observer =
+      new ResizeObserver(
+        (entries) => {
+          const entry =
+            entries[0];
 
-    observer.observe(a4Ref.current);
-    return () => observer.disconnect();
+          if (
+            entry &&
+            entry.contentRect.width >
+              0
+          ) {
+            setA4Width(
+              entry.contentRect.width
+            );
+          }
+        }
+      );
+
+    observer.observe(
+      element
+    );
+
+    return () =>
+      observer.disconnect();
   }, []);
 
-  const currentCanvasWidth = a4Width > 0 ? a4Width : 360;
-  const currentCanvasHeight = currentCanvasWidth * A4_RATIO;
+  const currentCanvasWidth =
+    a4Width > 0
+      ? a4Width
+      : 360;
 
-  // Initialize initial file into items list with proportional size
+  const currentCanvasHeight =
+    currentCanvasWidth *
+    A4_RATIO;
+
+  /* ---------------------------------------------------------------------- */
+  /* INITIAL FILE                                                           */
+  /* ---------------------------------------------------------------------- */
+
   useEffect(() => {
-    if (file && filePreviewUrl && items.length === 0 && currentCanvasWidth > 0) {
-      const initialId = 'item-1';
-      const isPdfFile = file.type === 'application/pdf';
-
-      if (isPdfFile) {
-        countPdfPages(file).then((pages) => {
-          setTotalPages(pages);
-        });
-      } else {
-        setTotalPages(1);
-      }
-
-      const initialItem: CanvasItemState = {
-        id: initialId,
-        file,
-        url: filePreviewUrl,
-        isImage: file.type.startsWith('image/'),
-        isPdf: isPdfFile,
-        pos: { x: isPdfFile ? 0 : 20, y: isPdfFile ? 0 : 20 },
-        size: { 
-          width: isPdfFile ? currentCanvasWidth : 150, 
-          height: isPdfFile ? currentCanvasHeight : 100 
-        },
-      };
-      setItems([initialItem]);
-      setActiveItemId(initialId);
+    if (
+      !file ||
+      !filePreviewUrl ||
+      items.length !== 0 ||
+      currentCanvasWidth <= 0
+    ) {
+      return;
     }
-  }, [file, filePreviewUrl, items.length, currentCanvasWidth, currentCanvasHeight, setItems, setActiveItemId, setTotalPages]);
+
+    const initialId =
+      'item-1';
+
+    const isPdfFile =
+      file.type ===
+      'application/pdf';
+
+    if (isPdfFile) {
+      countPdfPages(file).then(
+        (pages) => {
+          setTotalPages(
+            pages
+          );
+        }
+      );
+    } else {
+      setTotalPages(1);
+    }
+
+    const initialItem:
+      CanvasItemState = {
+      id: initialId,
+
+      file,
+
+      url: filePreviewUrl,
+
+      isImage:
+        file.type.startsWith(
+          'image/'
+        ),
+
+      isPdf:
+        isPdfFile,
+
+      pos: {
+        x: isPdfFile
+          ? 0
+          : 20,
+
+        y: isPdfFile
+          ? 0
+          : 20,
+      },
+
+      size: {
+        width: isPdfFile
+          ? currentCanvasWidth
+          : 150,
+
+        height: isPdfFile
+          ? currentCanvasHeight
+          : 100,
+      },
+    };
+
+    setItems([
+      initialItem,
+    ]);
+
+    setActiveItemId(
+      initialId
+    );
+  }, [
+    file,
+    filePreviewUrl,
+    items.length,
+    currentCanvasWidth,
+    currentCanvasHeight,
+    setItems,
+    setActiveItemId,
+    setTotalPages,
+  ]);
+
+  /* ---------------------------------------------------------------------- */
+  /* REDIRECT IF FILE MISSING                                               */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    if (!file) router.replace(`/${cafeId}`);
-  }, [file, router, cafeId]);
+    if (!file) {
+      router.replace(
+        `/${cafeId}`
+      );
+    }
+  }, [
+    file,
+    router,
+    cafeId,
+  ]);
 
-  const selectedItem = items.find((it) => it.id === activeItemId) || items[0];
+  /* ---------------------------------------------------------------------- */
+  /* SELECTED ITEM                                                          */
+  /* ---------------------------------------------------------------------- */
 
-  // ── Drag & Resize Logic ──────────────────────────────────────────────────
-  const interactionMode = useRef<'drag' | 'resize' | null>(null);
-  const activeItemIdRef = useRef<string | null>(null);
-  const initialPointer = useRef<{ mx: number; my: number; px: number; py: number; w: number; h: number }>({
-    mx: 0, my: 0, px: 0, py: 0, w: 0, h: 0
-  });
+  const selectedItem =
+    items.find(
+      (item) =>
+        item.id ===
+        activeItemId
+    ) || items[0];
 
-  const handlePointerDown = (id: string, mode: 'drag' | 'resize', e: React.PointerEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  /* ---------------------------------------------------------------------- */
+  /* DRAG & RESIZE                                                          */
+  /* ---------------------------------------------------------------------- */
+
+  const interactionMode =
+    useRef<
+      'drag' | 'resize' | null
+    >(null);
+
+  const activeItemIdRef =
+    useRef<string | null>(
+      null
+    );
+
+  const initialPointer =
+    useRef<{
+      mx: number;
+      my: number;
+      px: number;
+      py: number;
+      w: number;
+      h: number;
+    }>({
+      mx: 0,
+      my: 0,
+      px: 0,
+      py: 0,
+      w: 0,
+      h: 0,
+    });
+
+  const handlePointerDown = (
+    id: string,
+    mode:
+      | 'drag'
+      | 'resize',
+    event: React.PointerEvent
+  ) => {
+    event.stopPropagation();
+    event.preventDefault();
+
     setActiveItemId(id);
-    activeItemIdRef.current = id;
-    interactionMode.current = mode;
 
-    const targetItem = items.find((item) => item.id === id);
+    activeItemIdRef.current =
+      id;
+
+    interactionMode.current =
+      mode;
+
+    const targetItem =
+      items.find(
+        (item) =>
+          item.id === id
+      );
+
     if (targetItem) {
-      initialPointer.current = {
-        mx: e.clientX,
-        my: e.clientY,
-        px: targetItem.pos.x,
-        py: targetItem.pos.y,
-        w: targetItem.size.width,
-        h: targetItem.size.height,
-      };
+      initialPointer.current =
+        {
+          mx: event.clientX,
+          my: event.clientY,
+
+          px:
+            targetItem.pos.x,
+
+          py:
+            targetItem.pos.y,
+
+          w:
+            targetItem.size.width,
+
+          h:
+            targetItem.size.height,
+        };
     }
-    (e.target as Element).setPointerCapture(e.pointerId);
+
+    try {
+      (
+        event.target as Element
+      ).setPointerCapture(
+        event.pointerId
+      );
+    } catch {
+      // Ignore unsupported pointer capture.
+    }
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!interactionMode.current || !activeItemIdRef.current || !a4Ref.current) return;
-    const dx = e.clientX - initialPointer.current.mx;
-    const dy = e.clientY - initialPointer.current.my;
+  const handlePointerMove = (
+    event: React.PointerEvent
+  ) => {
+    if (
+      !interactionMode.current ||
+      !activeItemIdRef.current ||
+      !a4Ref.current
+    ) {
+      return;
+    }
 
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== activeItemIdRef.current) return item;
+    const dx =
+      event.clientX -
+      initialPointer.current
+        .mx;
 
-        if (interactionMode.current === 'drag') {
-          return {
-            ...item,
-            pos: {
-              x: Math.max(0, Math.min(currentCanvasWidth - item.size.width, initialPointer.current.px + dx)),
-              y: Math.max(0, Math.min(currentCanvasHeight - item.size.height, initialPointer.current.py + dy)),
-            },
-          };
-        } else if (interactionMode.current === 'resize') {
-          const newW = Math.max(50, initialPointer.current.w + dx);
-          const newH = Math.max(30, initialPointer.current.h + dy);
-          return {
-            ...item,
-            size: { width: newW, height: newH },
-          };
-        }
-        return item;
-      })
+    const dy =
+      event.clientY -
+      initialPointer.current
+        .my;
+
+    setItems(
+      (previous) =>
+        previous.map(
+          (item) => {
+            if (
+              item.id !==
+              activeItemIdRef.current
+            ) {
+              return item;
+            }
+
+            if (
+              interactionMode.current ===
+              'drag'
+            ) {
+              return {
+                ...item,
+
+                pos: {
+                  x: Math.max(
+                    0,
+                    Math.min(
+                      currentCanvasWidth -
+                        item.size
+                          .width,
+                      initialPointer
+                        .current
+                        .px + dx
+                    )
+                  ),
+
+                  y: Math.max(
+                    0,
+                    Math.min(
+                      currentCanvasHeight -
+                        item.size
+                          .height,
+                      initialPointer
+                        .current
+                        .py + dy
+                    )
+                  ),
+                },
+              };
+            }
+
+            if (
+              interactionMode.current ===
+              'resize'
+            ) {
+              const newWidth =
+                Math.max(
+                  50,
+                  initialPointer
+                    .current.w +
+                    dx
+                );
+
+              const newHeight =
+                Math.max(
+                  30,
+                  initialPointer
+                    .current.h +
+                    dy
+                );
+
+              return {
+                ...item,
+
+                size: {
+                  width:
+                    newWidth,
+
+                  height:
+                    newHeight,
+                },
+              };
+            }
+
+            return item;
+          }
+        )
     );
   };
 
-  const handlePointerUp = () => {
-    interactionMode.current = null;
-    activeItemIdRef.current = null;
-  };
+  const handlePointerUp =
+    () => {
+      interactionMode.current =
+        null;
 
-  const handleScanCrop = () => {
-    if (selectedItem?.isImage) {
-      router.push(`/${cafeId}/crop`);
-    }
-  };
-
-  const rotateSelectedImage = () => {
-    if (!selectedItem || !selectedItem.isImage) return;
-    setIsRotating(true);
-
-    const image = new Image();
-    image.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = image.naturalHeight;
-      canvas.height = image.naturalWidth;
-      const context = canvas.getContext('2d');
-      if (!context) return setIsRotating(false);
-
-      context.translate(canvas.width, 0);
-      context.rotate(Math.PI / 2);
-      context.drawImage(image, 0, 0);
-
-      const outputType = selectedItem.file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const updatedFile = new File([blob], selectedItem.file.name, { type: outputType });
-          const updatedUrl = URL.createObjectURL(blob);
-
-          setItems((prev) =>
-            prev.map((it) =>
-              it.id === selectedItem.id
-                ? { ...it, file: updatedFile, url: updatedUrl }
-                : it
-            )
-          );
-        }
-        setIsRotating(false);
-      }, outputType, 0.92);
+      activeItemIdRef.current =
+        null;
     };
-    image.onerror = () => setIsRotating(false);
-    image.src = selectedItem.url;
-  };
 
-  const handleReplaceFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextFile = event.target.files?.[0];
-    if (nextFile && selectedItem) {
-      const newUrl = URL.createObjectURL(nextFile);
-      const isPdfFile = nextFile.type === 'application/pdf';
+  /* ---------------------------------------------------------------------- */
+  /* CROP                                                                    */
+  /* ---------------------------------------------------------------------- */
 
-      // 👈 Nayi file replace hote hi uska exact page count turant calculate karein
-      if (isPdfFile) {
-        const pages = await countPdfPages(nextFile);
-        setTotalPages(pages);
-      } else {
-        setTotalPages(1);
+  const handleScanCrop =
+    () => {
+      if (
+        selectedItem?.isImage
+      ) {
+        router.push(
+          `/${cafeId}/crop`
+        );
+      }
+    };
+
+  /* ---------------------------------------------------------------------- */
+  /* ROTATE                                                                  */
+  /* ---------------------------------------------------------------------- */
+
+  const rotateSelectedImage =
+    () => {
+      if (
+        !selectedItem ||
+        !selectedItem.isImage
+      ) {
+        return;
       }
 
-      setItems((prev) =>
-        prev.map((it) =>
-          it.id === selectedItem.id
-            ? {
-                ...it,
-                file: nextFile,
-                url: newUrl,
-                isImage: nextFile.type.startsWith('image/'),
-                isPdf: isPdfFile,
-                // Size ko bhi naye file ke hisaab se reset kar dein
-                size: { 
-                  width: isPdfFile ? currentCanvasWidth : 150, 
-                  height: isPdfFile ? currentCanvasHeight : 100 
-                },
-                pos: { x: isPdfFile ? 0 : 20, y: isPdfFile ? 0 : 20 }
-              }
-            : it
-        )
-      );
-    }
-    event.target.value = '';
-  };
+      setIsRotating(true);
 
-  const handleAddAnotherImage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newFile = event.target.files?.[0];
-    if (newFile) {
-      const newUrl = URL.createObjectURL(newFile);
-      const newId = `item-${Date.now()}`;
-      
-      const offset = items.length * 25;
-      const newItem: CanvasItemState = {
-        id: newId,
-        file: newFile,
-        url: newUrl,
-        isImage: newFile.type.startsWith('image/'),
-        isPdf: newFile.type === 'application/pdf',
-        pos: { 
-          x: Math.min(currentCanvasWidth - 160, 20 + offset), 
-          y: Math.min(currentCanvasHeight - 110, 20 + offset) 
-        },
-        size: { width: 150, height: 100 },
+      const image =
+        new Image();
+
+      image.onload = () => {
+        const canvas =
+          document.createElement(
+            'canvas'
+          );
+
+        canvas.width =
+          image.naturalHeight;
+
+        canvas.height =
+          image.naturalWidth;
+
+        const context =
+          canvas.getContext(
+            '2d'
+          );
+
+        if (!context) {
+          setIsRotating(
+            false
+          );
+
+          return;
+        }
+
+        context.translate(
+          canvas.width,
+          0
+        );
+
+        context.rotate(
+          Math.PI / 2
+        );
+
+        context.drawImage(
+          image,
+          0,
+          0
+        );
+
+        const outputType =
+          selectedItem.file
+            .type ===
+          'image/png'
+            ? 'image/png'
+            : 'image/jpeg';
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const updatedFile =
+                new File(
+                  [blob],
+                  selectedItem
+                    .file.name,
+                  {
+                    type:
+                      outputType,
+                  }
+                );
+
+              const updatedUrl =
+                URL.createObjectURL(
+                  blob
+                );
+
+              setItems(
+                (previous) =>
+                  previous.map(
+                    (item) =>
+                      item.id ===
+                      selectedItem.id
+                        ? {
+                            ...item,
+
+                            file:
+                              updatedFile,
+
+                            url:
+                              updatedUrl,
+                          }
+                        : item
+                  )
+              );
+            }
+
+            setIsRotating(
+              false
+            );
+          },
+          outputType,
+          0.92
+        );
       };
-      setItems((prev) => [...prev, newItem]);
-      setActiveItemId(newId);
-    }
-    event.target.value = '';
+
+      image.onerror = () =>
+        setIsRotating(false);
+
+      image.src =
+        selectedItem.url;
+    };
+
+  /* ---------------------------------------------------------------------- */
+  /* REPLACE FILE                                                           */
+  /* ---------------------------------------------------------------------- */
+
+  const handleReplaceFile =
+    async (
+      event: React.ChangeEvent<HTMLInputElement>
+    ) => {
+      const nextFile =
+        event.target.files?.[0];
+
+      if (
+        nextFile &&
+        selectedItem
+      ) {
+        const newUrl =
+          URL.createObjectURL(
+            nextFile
+          );
+
+        const isPdfFile =
+          nextFile.type ===
+          'application/pdf';
+
+        if (isPdfFile) {
+          const pages =
+            await countPdfPages(
+              nextFile
+            );
+
+          setTotalPages(
+            pages
+          );
+        } else {
+          setTotalPages(1);
+        }
+
+        setItems(
+          (previous) =>
+            previous.map(
+              (item) =>
+                item.id ===
+                selectedItem.id
+                  ? {
+                      ...item,
+
+                      file:
+                        nextFile,
+
+                      url:
+                        newUrl,
+
+                      isImage:
+                        nextFile.type.startsWith(
+                          'image/'
+                        ),
+
+                      isPdf:
+                        isPdfFile,
+
+                      size: {
+                        width:
+                          isPdfFile
+                            ? currentCanvasWidth
+                            : 150,
+
+                        height:
+                          isPdfFile
+                            ? currentCanvasHeight
+                            : 100,
+                      },
+
+                      pos: {
+                        x:
+                          isPdfFile
+                            ? 0
+                            : 20,
+
+                        y:
+                          isPdfFile
+                            ? 0
+                            : 20,
+                      },
+                    }
+                  : item
+            )
+        );
+      }
+
+      event.target.value =
+        '';
+    };
+
+  /* ---------------------------------------------------------------------- */
+  /* ADD IMAGE                                                               */
+  /* ---------------------------------------------------------------------- */
+
+  const handleAddAnotherImage =
+    (
+      event: React.ChangeEvent<HTMLInputElement>
+    ) => {
+      const newFile =
+        event.target.files?.[0];
+
+      if (newFile) {
+        const newUrl =
+          URL.createObjectURL(
+            newFile
+          );
+
+        const newId =
+          `item-${Date.now()}`;
+
+        const offset =
+          items.length * 25;
+
+        const newItem:
+          CanvasItemState = {
+          id: newId,
+
+          file: newFile,
+
+          url: newUrl,
+
+          isImage:
+            newFile.type.startsWith(
+              'image/'
+            ),
+
+          isPdf:
+            newFile.type ===
+            'application/pdf',
+
+          pos: {
+            x: Math.min(
+              Math.max(
+                0,
+                currentCanvasWidth -
+                  160
+              ),
+              20 + offset
+            ),
+
+            y: Math.min(
+              Math.max(
+                0,
+                currentCanvasHeight -
+                  110
+              ),
+              20 + offset
+            ),
+          },
+
+          size: {
+            width: 150,
+            height: 100,
+          },
+        };
+
+        setItems(
+          (previous) => [
+            ...previous,
+            newItem,
+          ]
+        );
+
+        setActiveItemId(
+          newId
+        );
+      }
+
+      event.target.value =
+        '';
+    };
+
+  /* ---------------------------------------------------------------------- */
+  /* DELETE                                                                  */
+  /* ---------------------------------------------------------------------- */
+
+  const handleDelete =
+    () => {
+      if (items.length <= 1) {
+        setFile(null);
+
+        router.push(
+          `/${cafeId}`
+        );
+
+        return;
+      }
+
+      if (activeItemId) {
+        const filtered =
+          items.filter(
+            (item) =>
+              item.id !==
+              activeItemId
+          );
+
+        setItems(
+          filtered
+        );
+
+        setActiveItemId(
+          filtered[0]?.id ||
+            null
+        );
+      }
+    };
+
+  /* ---------------------------------------------------------------------- */
+  /* NEXT                                                                     */
+  /* ---------------------------------------------------------------------- */
+
+  const handleNextStep =
+    async () => {
+      setIsUploading(true);
+
+      try {
+        router.push(
+          `/${cafeId}/options`
+        );
+      } catch (error: any) {
+        console.error(
+          'Preview navigation Error:',
+          error
+        );
+
+        alert(
+          error?.message ||
+            'Something went wrong. Please try again.'
+        );
+
+        setIsUploading(false);
+      }
+    };
+
+  /* ---------------------------------------------------------------------- */
+  /* NO FILE                                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  if (!file) {
+    return null;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* FILE SIZE                                                               */
+  /* ---------------------------------------------------------------------- */
+
+  const formatSize = (
+    bytes: number
+  ) => {
+    const mb =
+      bytes /
+      (1024 * 1024);
+
+    return mb < 1
+      ? `${Math.round(
+          bytes / 1024
+        )} KB`
+      : `${mb.toFixed(
+          2
+        )} MB`;
   };
 
-  const handleDelete = () => {
-    if (items.length <= 1) {
-      setFile(null);
-      router.push(`/${cafeId}`);
-    } else if (activeItemId) {
-      const filtered = items.filter((it) => it.id !== activeItemId);
-      setItems(filtered);
-      setActiveItemId(filtered[0]?.id || null);
-    }
-  };
-
-  const handleNextStep = async () => {
-    setIsUploading(true);
-    try {
-      router.push(`/${cafeId}/options`);
-    } catch (err: any) {
-      console.error('Preview navigation Error:', err);
-      alert(err.message || 'Something went wrong. Please try again.');
-      setIsUploading(false);
-    }
-  };
-
-  if (!file) return null;
-
-  const formatSize = (bytes: number) => {
-    const mb = bytes / (1024 * 1024);
-    return mb < 1 ? `${Math.round(bytes / 1024)} KB` : `${mb.toFixed(2)} MB`;
-  };
+  /* ---------------------------------------------------------------------- */
+  /* UI                                                                       */
+  /* ---------------------------------------------------------------------- */
 
   return (
     <Layout>
-      <div className={styles.header}>
-        <h1 className={styles.title}>Preview &amp; Position</h1>
+      {/* ---------------------------------------------------------------- */}
+      {/* HEADER                                                           */}
+      {/* ---------------------------------------------------------------- */}
+
+      <div
+        className={
+          styles.header
+        }
+      >
+        <h1
+          className={
+            styles.title
+          }
+        >
+          Preview &amp; Position
+        </h1>
       </div>
 
-      {/* Interactive A4 Sheet Canvas */}
-      <div className={styles.a4Wrapper}>
+      {/* ---------------------------------------------------------------- */}
+      {/* A4 SHEET                                                         */}
+      {/* ---------------------------------------------------------------- */}
+
+      <div
+        className={
+          styles.a4Wrapper
+        }
+      >
         <div
           ref={a4Ref}
           id="a4-sheet"
-          className={styles.a4Sheet}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handlePointerUp}
+          className={
+            styles.a4Sheet
+          }
+          onPointerMove={
+            handlePointerMove
+          }
+          onPointerUp={
+            handlePointerUp
+          }
+          onPointerLeave={
+            handlePointerUp
+          }
         >
-          <div className={styles.a4Inner}>
-            {items.map((item) => {
-              const isSelected = item.id === activeItemId;
-              return (
-                <div
-                  key={item.id}
-                  className={`${styles.draggable} ${
-                    isSelected && !item.isPdf ? styles.selectedDraggable : ''
-                  }`}
-                  style={{
-                    left: `${(item.pos.x / currentCanvasWidth) * 100}%`,
-                    top: `${(item.pos.y / currentCanvasHeight) * 100}%`,
-                    width: `${(item.size.width / currentCanvasWidth) * 100}%`,
-                    height: `${(item.size.height / currentCanvasHeight) * 100}%`,
-                    border: item.isPdf ? 'none' : undefined,
-                  }}
-                  onPointerDown={(e) => handlePointerDown(item.id, 'drag', e)}
-                >
-                  {item.isImage && (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={item.url}
-                      alt="Preview"
-                      className={styles.draggableImage}
-                      draggable={false}
-                    />
-                  )}
-                  {item.isPdf && (
-  <div 
-    className={styles.pdfScrollContainer}
-    onPointerDown={(e) => e.stopPropagation()}
-  >
-    <PdfPreviewCanvas url={item.url} />
-  </div>
-)}
-                    {/* {item.isPdf && (
-  <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-    <PdfPreviewCanvas url={item.url} />
-  </div>
-)} */}
-                  {/* {item.isPdf && (
-                    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#ffffff' }}>
-                      <div style={{ 
-                        position: 'absolute', 
-                        top: '-5px',    
-                        left: '-5px',   
-                        bottom: '-5px', 
-                        right: '-25px'  
-                      }}>
-                        <object
-                          data={`${item.url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-                          type="application/pdf"
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            border: 'none',
-                            pointerEvents: 'auto',
-                          }}
+          <div
+            className={
+              styles.a4Inner
+            }
+          >
+            {items.map(
+              (item) => {
+                const isSelected =
+                  item.id ===
+                  activeItemId;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`${
+                      styles.draggable
+                    } ${
+                      isSelected &&
+                      !item.isPdf
+                        ? styles.selectedDraggable
+                        : ''
+                    }`}
+                    style={{
+                      left: `${
+                        (item.pos.x /
+                          currentCanvasWidth) *
+                        100
+                      }%`,
+
+                      top: `${
+                        (item.pos.y /
+                          currentCanvasHeight) *
+                        100
+                      }%`,
+
+                      width: `${
+                        (item.size.width /
+                          currentCanvasWidth) *
+                        100
+                      }%`,
+
+                      height: `${
+                        (item.size.height /
+                          currentCanvasHeight) *
+                        100
+                      }%`,
+
+                      border:
+                        item.isPdf
+                          ? 'none'
+                          : undefined,
+                    }}
+                    onPointerDown={(
+                      event
+                    ) =>
+                      handlePointerDown(
+                        item.id,
+                        'drag',
+                        event
+                      )
+                    }
+                  >
+                    {/* ------------------------------------------------ */}
+                    {/* IMAGE                                            */}
+                    {/* ------------------------------------------------ */}
+
+                    {item.isImage && (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={
+                            item.url
+                          }
+                          alt="Preview"
+                          className={
+                            styles.draggableImage
+                          }
+                          draggable={
+                            false
+                          }
                         />
-                      </div>
-                    </div>
-                  )} */}
+                      </>
+                    )}
 
-                  {isSelected && !item.isPdf && (
-                    <>
-                      <div className={styles.dragHint}>⠿ drag</div>
-                      <div
-                        className={styles.resizeHandle}
-                        onPointerDown={(e) => handlePointerDown(item.id, 'resize', e)}
+                    {/* ------------------------------------------------ */}
+                    {/* PDF                                              */}
+                    {/* ------------------------------------------------ */}
+
+                    {item.isPdf && (
+                      <PdfPreview
+                        url={
+                          item.url
+                        }
                       />
-                    </>
-                  )}
-                </div>
-              );
-            })}
+                    )}
 
-            <span className={`${styles.corner} ${styles.cornerTL}`} />
-            <span className={`${styles.corner} ${styles.cornerTR}`} />
-            <span className={`${styles.corner} ${styles.cornerBL}`} />
-            <span className={`${styles.corner} ${styles.cornerBR}`} />
+                    {/* ------------------------------------------------ */}
+                    {/* IMAGE CONTROLS                                   */}
+                    {/* ------------------------------------------------ */}
+
+                    {isSelected &&
+                      !item.isPdf && (
+                        <>
+                          <div
+                            className={
+                              styles.dragHint
+                            }
+                          >
+                            ⠿ drag
+                          </div>
+
+                          <div
+                            className={
+                              styles.resizeHandle
+                            }
+                            onPointerDown={(
+                              event
+                            ) =>
+                              handlePointerDown(
+                                item.id,
+                                'resize',
+                                event
+                              )
+                            }
+                          />
+                        </>
+                      )}
+                  </div>
+                );
+              }
+            )}
+
+            {/* ---------------------------------------------------------- */}
+            {/* A4 CORNERS                                                 */}
+            {/* ---------------------------------------------------------- */}
+
+            <span
+              className={`${styles.corner} ${styles.cornerTL}`}
+            />
+
+            <span
+              className={`${styles.corner} ${styles.cornerTR}`}
+            />
+
+            <span
+              className={`${styles.corner} ${styles.cornerBL}`}
+            />
+
+            <span
+              className={`${styles.corner} ${styles.cornerBR}`}
+            />
           </div>
         </div>
       </div>
 
+      {/* ---------------------------------------------------------------- */}
+      {/* FILE INFO                                                        */}
+      {/* ---------------------------------------------------------------- */}
+
       {selectedItem && (
-        <Card className={styles.fileInfoCard}>
-          <div className={styles.fileInfo}>
-            <p className={styles.fileName}>{selectedItem.file.name}</p>
-            <p className={styles.fileDetails}>
-              {formatSize(selectedItem.file.size)} &bull;{' '}
-              {selectedItem.isImage ? 'Image' : 'PDF'} ({items.length} item(s) on page)
+        <Card
+          className={
+            styles.fileInfoCard
+          }
+        >
+          <div
+            className={
+              styles.fileInfo
+            }
+          >
+            <p
+              className={
+                styles.fileName
+              }
+            >
+              {
+                selectedItem.file
+                  .name
+              }
+            </p>
+
+            <p
+              className={
+                styles.fileDetails
+              }
+            >
+              {formatSize(
+                selectedItem
+                  .file.size
+              )}{' '}
+              &bull;{' '}
+              {selectedItem.isImage
+                ? 'Image'
+                : 'PDF'}{' '}
+              ({items.length}{' '}
+              item(s) on page)
             </p>
           </div>
         </Card>
       )}
 
-      <div className={styles.actionGrid}>
+      {/* ---------------------------------------------------------------- */}
+      {/* ACTIONS                                                          */}
+      {/* ---------------------------------------------------------------- */}
+
+      <div
+        className={
+          styles.actionGrid
+        }
+      >
         {selectedItem?.isImage && (
-          <Button variant="secondary" onClick={handleScanCrop} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-            <Crop size={16} /> Scan &amp; Crop
+          <Button
+            variant="secondary"
+            onClick={
+              handleScanCrop
+            }
+            disabled={
+              isUploading
+            }
+            style={{
+              display:
+                'flex',
+
+              gap: '6px',
+
+              justifyContent:
+                'center',
+            }}
+          >
+            <Crop size={16} />
+
+            Scan &amp; Crop
           </Button>
         )}
 
         {selectedItem?.isImage && (
-          <Button variant="secondary" onClick={rotateSelectedImage} disabled={isRotating || isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-            <RotateCw size={16} /> {isRotating ? 'Rotating…' : 'Rotate'}
+          <Button
+            variant="secondary"
+            onClick={
+              rotateSelectedImage
+            }
+            disabled={
+              isRotating ||
+              isUploading
+            }
+            style={{
+              display:
+                'flex',
+
+              gap: '6px',
+
+              justifyContent:
+                'center',
+            }}
+          >
+            <RotateCw
+              size={16}
+            />
+
+            {isRotating
+              ? 'Rotating…'
+              : 'Rotate'}
           </Button>
         )}
 
-        <Button variant="secondary" onClick={() => replaceInputRef.current?.click()} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-          <FileUp size={16} /> Replace File
+        <Button
+          variant="secondary"
+          onClick={() =>
+            replaceInputRef.current?.click()
+          }
+          disabled={
+            isUploading
+          }
+          style={{
+            display:
+              'flex',
+
+            gap: '6px',
+
+            justifyContent:
+              'center',
+          }}
+        >
+          <FileUp size={16} />
+
+          Replace File
         </Button>
 
-        {/* 👈 Sirf tabhi dikhega jab item PDF nahi hoga (yani Image hogi) */}
         {!selectedItem?.isPdf && (
-          <Button variant="secondary" onClick={() => addImageInputRef.current?.click()} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-            <PlusCircle size={16} /> Add More
+          <Button
+            variant="secondary"
+            onClick={() =>
+              addImageInputRef.current?.click()
+            }
+            disabled={
+              isUploading
+            }
+            style={{
+              display:
+                'flex',
+
+              gap: '6px',
+
+              justifyContent:
+                'center',
+            }}
+          >
+            <PlusCircle
+              size={16}
+            />
+
+            Add More
           </Button>
         )}
 
-        <Button variant="danger" onClick={handleDelete} disabled={isUploading} style={{ display: 'flex', gap: '6px', justifyContent: 'center', gridColumn: 'span 2' }}>
-          <Trash2 size={16} /> Delete Item
+        <Button
+          variant="danger"
+          onClick={
+            handleDelete
+          }
+          disabled={
+            isUploading
+          }
+          style={{
+            display:
+              'flex',
+
+            gap: '6px',
+
+            justifyContent:
+              'center',
+
+            gridColumn:
+              'span 2',
+          }}
+        >
+          <Trash2 size={16} />
+
+          Delete Item
         </Button>
       </div>
 
+      {/* ---------------------------------------------------------------- */}
+      {/* FILE INPUTS                                                      */}
+      {/* ---------------------------------------------------------------- */}
+
       <input
-        ref={replaceInputRef}
+        ref={
+          replaceInputRef
+        }
         type="file"
         className="visually-hidden"
         accept=".pdf,.png,.jpg,.jpeg"
-        onChange={handleReplaceFile}
+        onChange={
+          handleReplaceFile
+        }
       />
+
       <input
-        ref={addImageInputRef}
+        ref={
+          addImageInputRef
+        }
         type="file"
         className="visually-hidden"
         accept=".png,.jpg,.jpeg"
-        onChange={handleAddAnotherImage}
+        onChange={
+          handleAddAnotherImage
+        }
       />
+
+      {/* ---------------------------------------------------------------- */}
+      {/* BACK                                                              */}
+      {/* ---------------------------------------------------------------- */}
 
       <Button
         variant="ghost"
         fullWidth
-        onClick={() => router.replace(`/${cafeId}`)}
-        className={styles.backButton}
-        disabled={isUploading}
-        style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}
+        onClick={() =>
+          router.replace(
+            `/${cafeId}`
+          )
+        }
+        className={
+          styles.backButton
+        }
+        disabled={
+          isUploading
+        }
+        style={{
+          display:
+            'flex',
+
+          gap: '6px',
+
+          justifyContent:
+            'center',
+        }}
       >
-        <ArrowLeft size={16} /> Back
+        <ArrowLeft size={16} />
+
+        Back
       </Button>
 
-      <div className={styles.footer}>
-        <Button variant="primary" size="large" fullWidth onClick={handleNextStep} disabled={isUploading} style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-          {isUploading ? 'Preparing Assets...' : <>Next Step <ArrowRight size={18} /></>}
+      {/* ---------------------------------------------------------------- */}
+      {/* FOOTER                                                           */}
+      {/* ---------------------------------------------------------------- */}
+
+      <div
+        className={
+          styles.footer
+        }
+      >
+        <Button
+          variant="primary"
+          size="large"
+          fullWidth
+          onClick={
+            handleNextStep
+          }
+          disabled={
+            isUploading
+          }
+          style={{
+            display:
+              'flex',
+
+            gap: '8px',
+
+            justifyContent:
+              'center',
+          }}
+        >
+          {isUploading ? (
+            'Preparing Assets...'
+          ) : (
+            <>
+              Next Step
+
+              <ArrowRight
+                size={18}
+              />
+            </>
+          )}
         </Button>
       </div>
     </Layout>
