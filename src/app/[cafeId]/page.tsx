@@ -195,7 +195,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               ref={docInputRef}
               type="file"
               className="visually-hidden"
-              accept=".pdf,.png,.jpg,.jpeg,image/*"
+              accept=".pdf,image/*"
               onChange={handleFileChange}
               disabled={isProcessing}
             />
@@ -221,7 +221,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               ref={cameraInputRef}
               type="file"
               className="visually-hidden"
-              accept="image/*"
+              accept=".png,.jpg,.jpeg,image/*"
               capture="environment" // 🛡️ Ye mobile ka direct rear camera open karega
               onChange={handleFileChange}
               disabled={isProcessing}
