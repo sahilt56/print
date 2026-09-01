@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
 import styles from './page.module.css';
 import { UploadCloud, Camera, Loader2 } from 'lucide-react';
-import { compressImageWithWorker } from '@/utils/compressWithWorker';
 
 interface CafeDetails {
   name?: string;
@@ -23,7 +22,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
 
-  // 🛡️ Strict Synchronous Lock Guard (Zero-latency double tap block)
+  // 🛡️ Strict 0ms Lock Guard (Double click crash block)
   const isProcessingRef = useRef<boolean>(false);
 
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -54,7 +53,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   }, [cafeId]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    // 🛡️ Guard 1: Drop rapid double shutter clicks at 0ms
+    // 🛡️ Drop duplicate clicks at 0ms
     if (isProcessingRef.current) {
       e.target.value = '';
       return;
@@ -63,7 +62,6 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    // Apply Lock
     isProcessingRef.current = true;
     setIsProcessing(true);
     setError('');
@@ -82,20 +80,12 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
     }
 
     try {
-      setFile(null); // Clear previous state
-
-      let finalFile = rawFile;
-
-      if (isImage) {
-        // 🚀 Offload compression to Web Worker (Zero Main-Thread RAM Overhead)
-        finalFile = await compressImageWithWorker(rawFile, 1000, 0.65);
-      }
-
-      setFile(finalFile);
+      // 🚀 ZERO FRONTEND COMPRESSION (Direct Handoff to Context)
+      setFile(rawFile);
       router.push(`/${cafeId}/preview`);
     } catch (err) {
-      console.error('File processing error:', err);
-      setError('Failed to process image. Please try again.');
+      console.error('File routing error:', err);
+      setError('Failed to process file. Please try again.');
       isProcessingRef.current = false;
       setIsProcessing(false);
     }
