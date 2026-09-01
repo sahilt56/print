@@ -36,7 +36,7 @@ import {
 
 const A4_RATIO = 297 / 210;
 
-const MIN_ZOOM = 1;
+const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 
 const PDF_PAGE_GAP = 18;
@@ -241,77 +241,49 @@ function PdfPreview({
   /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    let cancelled = false;
+  let cancelled = false;
 
-    const loadPdf = async () => {
-      try {
-        setError(null);
-        setPageCount(0);
+  // 1. Ref ki current value ko local variable me snapshot kar lein
+  const renderTasks = renderTasksRef.current;
 
-        const loadingTask =
-          pdfjsLib.getDocument({
-            url,
-          });
+  const loadPdf = async () => {
+    try {
+      setError(null);
+      setPageCount(0);
 
-        const pdf =
-          await loadingTask.promise;
+      const loadingTask = pdfjsLib.getDocument({ url });
+      const pdf = await loadingTask.promise;
 
-        if (cancelled) {
-          return;
-        }
+      if (cancelled) return;
 
-        pdfDocumentRef.current = pdf;
-
-        setPageCount(
-          pdf.numPages
-        );
-      } catch (err: any) {
-        if (!cancelled) {
-          console.error(
-            'PDF loading failed:',
-            err
-          );
-
-          setError(
-            'Unable to load PDF preview.'
-          );
-        }
+      pdfDocumentRef.current = pdf;
+      setPageCount(pdf.numPages);
+    } catch (err: any) {
+      if (!cancelled) {
+        console.error('PDF loading failed:', err);
+        setError('Unable to load PDF preview.');
       }
-    };
+    }
+  };
 
-    loadPdf();
+  loadPdf();
 
-    return () => {
-      cancelled = true;
+  return () => {
+    cancelled = true;
 
-      /*
-       * We intentionally do NOT call pdf.destroy().
-       *
-       * Some pdfjs-dist versions/types do not expose
-       * destroy() on PDFDocumentProxy.
-       *
-       * Cancelling render tasks is sufficient for this
-       * component and avoids the TypeScript error.
-       */
+    // 2. Cleanup function me renderTasksRef.current ki jagah local variable 'renderTasks' use karein
+    renderTasks.forEach((task) => {
+      try {
+        task?.cancel?.();
+      } catch {
+        // Ignore cancellation errors.
+      }
+    });
 
-      const tasks =
-        renderTasksRef.current;
-
-      tasks.forEach(
-        (task) => {
-          try {
-            task?.cancel?.();
-          } catch {
-            // Ignore cancellation errors.
-          }
-        }
-      );
-
-      tasks.clear();
-
-      pdfDocumentRef.current = null;
-    };
-  }, [url]);
+    renderTasks.clear();
+    pdfDocumentRef.current = null;
+  };
+}, [url]);
 
   /* ---------------------------------------------------------------------- */
   /* CALCULATE FIT SCALE                                                    */
@@ -425,223 +397,103 @@ function PdfPreview({
   /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    let cancelled = false;
+  let cancelled = false;
 
-    const renderPages = async () => {
-      const pdf =
-        pdfDocumentRef.current;
+  // 1. Ref ko local variable me store karein
+  const renderTasks = renderTasksRef.current;
 
-      if (
-        !pdf ||
-        pageCount <= 0 ||
-        fitScale <= 0
-      ) {
-        return;
+  const renderPages = async () => {
+    const pdf = pdfDocumentRef.current;
+
+    if (!pdf || pageCount <= 0 || fitScale <= 0) {
+      return;
+    }
+
+    setIsRendering(true);
+
+    try {
+      renderTasks.forEach((task) => {
+        try {
+          task?.cancel?.();
+        } catch {
+          // Ignore cancellation errors.
+        }
+      });
+
+      renderTasks.clear();
+      const finalScale = fitScale * zoom;
+
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+        if (cancelled) return;
+
+        const canvas = canvasRefs.current.get(pageNumber);
+        if (!canvas) continue;
+
+        const page = await pdf.getPage(pageNumber);
+        if (cancelled) return;
+
+        const viewport = page.getViewport({ scale: finalScale });
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+        canvas.width = Math.ceil(viewport.width * dpr);
+        canvas.height = Math.ceil(viewport.height * dpr);
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+
+        const context = canvas.getContext('2d');
+        if (!context) continue;
+
+        context.setTransform(dpr, 0, 0, dpr, 0, 0);
+        context.clearRect(0, 0, viewport.width, viewport.height);
+
+        const renderTask = page.render({
+          canvasContext: context,
+          viewport,
+          canvas,
+        });
+
+        renderTasks.set(pageNumber, renderTask);
+
+        try {
+          await renderTask.promise;
+        } catch (renderError: any) {
+          if (renderError?.name === 'RenderingCancelledException') {
+            return;
+          }
+          throw renderError;
+        } finally {
+          renderTasks.delete(pageNumber);
+        }
       }
+    } catch (err: any) {
+      if (!cancelled && err?.name !== 'RenderingCancelledException') {
+        console.error('PDF pages render failed:', err);
+        setError('Unable to render PDF preview.');
+      }
+    } finally {
+      if (!cancelled) {
+        setIsRendering(false);
+      }
+    }
+  };
 
-      setIsRendering(true);
+  renderPages();
 
-      /*
-       * IMPORTANT:
-       *
-       * Capture the current render task map in a local
-       * variable. This prevents the React exhaustive-deps
-       * warning about renderTasksRef.current changing
-       * before cleanup runs.
-       */
-      const renderTasks =
-        renderTasksRef.current;
+  return () => {
+    cancelled = true;
 
+    // 2. Direct ref.current ki jagah local variable 'renderTasks' use karein
+    renderTasks.forEach((task) => {
       try {
-        /*
-         * Cancel previous renders.
-         */
-        renderTasks.forEach(
-          (task) => {
-            try {
-              task?.cancel?.();
-            } catch {
-              // Ignore cancellation errors.
-            }
-          }
-        );
-
-        renderTasks.clear();
-
-        const finalScale =
-          fitScale * zoom;
-
-        /*
-         * Render pages one by one.
-         *
-         * This avoids creating too many simultaneous
-         * PDF.js rendering tasks on mobile devices.
-         */
-        for (
-          let pageNumber = 1;
-          pageNumber <= pageCount;
-          pageNumber++
-        ) {
-          if (cancelled) {
-            return;
-          }
-
-          const canvas =
-            canvasRefs.current.get(
-              pageNumber
-            );
-
-          if (!canvas) {
-            continue;
-          }
-
-          const page =
-            await pdf.getPage(
-              pageNumber
-            );
-
-          if (cancelled) {
-            return;
-          }
-
-          const viewport =
-            page.getViewport({
-              scale: finalScale,
-            });
-
-          const dpr =
-            Math.min(
-              window.devicePixelRatio ||
-                1,
-              2
-            );
-
-          canvas.width =
-            Math.ceil(
-              viewport.width * dpr
-            );
-
-          canvas.height =
-            Math.ceil(
-              viewport.height * dpr
-            );
-
-          canvas.style.width =
-            `${viewport.width}px`;
-
-          canvas.style.height =
-            `${viewport.height}px`;
-
-          const context =
-            canvas.getContext(
-              '2d'
-            );
-
-          if (!context) {
-            continue;
-          }
-
-          context.setTransform(
-            dpr,
-            0,
-            0,
-            dpr,
-            0,
-            0
-          );
-
-          context.clearRect(
-            0,
-            0,
-            viewport.width,
-            viewport.height
-          );
-
-          const renderTask =
-            page.render({
-              canvasContext:
-                context,
-              viewport,
-              canvas,
-            });
-
-          renderTasks.set(
-            pageNumber,
-            renderTask
-          );
-
-          try {
-            await renderTask.promise;
-          } catch (renderError: any) {
-            if (
-              renderError?.name ===
-              'RenderingCancelledException'
-            ) {
-              return;
-            }
-
-            throw renderError;
-          } finally {
-            renderTasks.delete(
-              pageNumber
-            );
-          }
-        }
-      } catch (err: any) {
-        if (
-          !cancelled &&
-          err?.name !==
-            'RenderingCancelledException'
-        ) {
-          console.error(
-            'PDF pages render failed:',
-            err
-          );
-
-          setError(
-            'Unable to render PDF preview.'
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsRendering(false);
-        }
+        task?.cancel?.();
+      } catch {
+        // Ignore cancellation errors.
       }
-    };
+    });
 
-    renderPages();
-
-    return () => {
-      cancelled = true;
-
-      /*
-       * Use the local captured reference rather than
-       * directly reading renderTasksRef.current.
-       *
-       * This fixes:
-       *
-       * react-hooks/exhaustive-deps
-       */
-      const tasks =
-        renderTasksRef.current;
-
-      tasks.forEach(
-        (task) => {
-          try {
-            task?.cancel?.();
-          } catch {
-            // Ignore cancellation errors.
-          }
-        }
-      );
-
-      tasks.clear();
-    };
-  }, [
-    pageCount,
-    fitScale,
-    zoom,
-  ]);
+    renderTasks.clear();
+  };
+}, [pageCount, fitScale, zoom]);
 
   /* ---------------------------------------------------------------------- */
   /* TOUCH START                                                             */
@@ -734,35 +586,35 @@ function PdfPreview({
   };
 
   /* ---------------------------------------------------------------------- */
-  /* WHEEL                                                                    */
-  /* ---------------------------------------------------------------------- */
+/* WHEEL & TRACKPAD PINCH ZOOM FIX                                        */
+/* ---------------------------------------------------------------------- */
+useEffect(() => {
+  const viewport = viewportRef.current;
+  if (!viewport) return;
 
-  const handleWheel = (
-    event: React.WheelEvent<HTMLDivElement>
-  ) => {
-    event.stopPropagation();
-
-    /*
-     * Ctrl + mouse wheel = zoom.
-     *
-     * Normal wheel remains native scrolling.
-     */
+  const handleWheelNative = (event: WheelEvent) => {
+    // Trackpad pinch zoom aur Ctrl + Mouse Wheel dono me ctrlKey true hota hai
     if (event.ctrlKey) {
-      event.preventDefault();
+      event.preventDefault(); // Web page ka outer zoom stop karega
+      event.stopPropagation(); // Event ko parent container tak jane se rokega
 
-      const direction =
-        event.deltaY > 0
-          ? -1
-          : 1;
+      const direction = event.deltaY > 0 ? -1 : 1;
 
       setZoom((value) =>
-        clampZoom(
-          value +
-            direction * 0.1
-        )
+        clampZoom(value + direction * 0.1)
       );
     }
   };
+
+  // passive: false browser ko bolta hai ki preventDefault() allowed hai
+  viewport.addEventListener('wheel', handleWheelNative, { passive: false });
+
+  return () => {
+    viewport.removeEventListener('wheel', handleWheelNative);
+  };
+}, [clampZoom]);
+
+  
 
   /* ---------------------------------------------------------------------- */
   /* DOUBLE CLICK                                                            */
@@ -800,9 +652,6 @@ function PdfPreview({
       onTouchEnd={
         handleTouchEnd
       }
-      onWheel={
-        handleWheel
-      }
       onDoubleClick={
         handleDoubleClick
       }
@@ -822,7 +671,7 @@ function PdfPreview({
          * manual pinch handling.
          */
         touchAction:
-          'pan-x pan-y pinch-zoom',
+          'pan-x pan-y',
 
         overscrollBehavior:
           'contain',
@@ -849,7 +698,7 @@ function PdfPreview({
     display: 'flex',
     flexDirection: 'column',
     alignItems:
-      zoom === 1
+      zoom <= 1
         ? 'center'
         : 'flex-start',
     gap: PDF_PAGE_GAP,
