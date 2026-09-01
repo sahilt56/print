@@ -232,7 +232,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
           </div>
 
           {/* Direct Camera Capture */}
-          <div className={styles.uploadContainer}>
+          {/* <div className={styles.uploadContainer}>
             <input
               ref={cameraInputRef}
               type="file"
@@ -256,7 +256,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
               {isProcessing ? 'Processing...' : 'Take Photo'}
             </Button>
-          </div>
+          </div> */}
         </div>
 
         <div className={styles.footer}>
