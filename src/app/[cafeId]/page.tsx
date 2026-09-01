@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
 import styles from './page.module.css';
-import { UploadCloud, Camera } from 'lucide-react';
+import { UploadCloud, Camera, Loader2 } from 'lucide-react';
 import imageCompression from 'browser-image-compression';
 
 interface CafeDetails {
@@ -13,21 +13,73 @@ interface CafeDetails {
   logoUrl?: string | null;
 }
 
-// 🛡️ Safe Super-Light Compress Function (RAM Crash protection)
-// 🛡️ Safe Memory Compression (createObjectURL + Object Blob)
-async function compressImage(file: File): Promise<File> {
-  const options = {
-    maxSizeMB: 1,                  // Reduces massive files immediately
-    maxWidthOrHeight: 1024,        // Safe boundary for printing forms/text
-    useWebWorker: true,            // 🛡️ Moves execution off the main UI thread to prevent crashes
-    initialQuality: 0.6,           // Balanced compression
-    alwaysKeepResolution: false    // Forces downsizing of huge mobile sensors
-  };
-
+// 🛡️ Ultra Low-RAM Resizer (Crash-Proof for Mobile Phones)
+async function compressImageLowMemory(file: File): Promise<File> {
   try {
+    // 1. createImageBitmap direct hardware-level par resize karta hai (Zero RAM Spike)
+    if ('createImageBitmap' in window) {
+      const maxDim = 1200; // Print documents ke liye 1200px kaafi hai
+      const imgBitmap = await createImageBitmap(file);
+      
+      let { width, height } = imgBitmap;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      
+      // Hardware scaled bitmap create karein
+      const scaledBitmap = await createImageBitmap(file, {
+        resizeWidth: width,
+        resizeHeight: height,
+        resizeQuality: 'medium',
+      });
+      imgBitmap.close(); // Purani heavy image ko RAM se turant delete karein
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      
+      if (ctx) {
+        ctx.drawImage(scaledBitmap, 0, 0);
+        scaledBitmap.close(); // Scaled image ko bhi memory se delete karein
+
+        const blob: Blob | null = await new Promise((resolve) =>
+          canvas.toBlob(resolve, 'image/jpeg', 0.75)
+        );
+
+        // Canvas memory free karein
+        canvas.width = 0;
+        canvas.height = 0;
+
+        if (blob) {
+          return new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Native low-memory scaling failed, falling back:', err);
+  }
+
+  // Fallback if browser doesn't support createImageBitmap
+  try {
+    const options = {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1200,
+      useWebWorker: false, // Worker low-RAM devices par double memory consume karta hai
+      initialQuality: 0.7,
+    };
     return await imageCompression(file, options);
   } catch (error) {
-    console.warn("Worker compression failed, falling back to raw file:", error);
+    console.warn('Compression failed, using raw file:', error);
     return file;
   }
 }
@@ -39,6 +91,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   const { cafeId } = React.use(params);
   const [cafeData, setCafeData] = useState<CafeDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
 
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -68,43 +121,43 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
     };
   }, [cafeId]);
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
     setError('');
-    
-    // 🛡️ 1. सबसे पहले पुरानी फाइल की मेमोरी पूरी तरह खाली करें (यह लाइन जरूरी है)
-    setFile(null); 
+    setIsProcessing(true);
 
-    // 🛡️ 2. इनपुट रेफरेंस को तुरंत फ्री करें ताकि ब्राउज़र फाइल होल्ड न करे
+    // 🛡️ Purani file aur input clean karein
+    setFile(null);
     const rawFile = selectedFile;
-    e.target.value = ''; 
+    e.target.value = '';
 
     const isPdf = rawFile.type === 'application/pdf';
-    const isImage = rawFile.type.startsWith('image/');
+    const isImage = rawFile.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(rawFile.name);
 
     if (!isImage && !isPdf) {
       setError('❌ Invalid file format! Please choose PDF, JPG, or PNG.');
+      setIsProcessing(false);
       return;
     }
 
-    let finalFile = rawFile;
+    try {
+      let finalFile = rawFile;
 
-    if (isImage) {
-      try {
-        // Background worker handles the scale down securely
-        finalFile = await compressImage(rawFile);
-      } catch (err) {
-        console.warn('Compression bypassed:', err);
+      if (isImage) {
+        finalFile = await compressImageLowMemory(rawFile);
       }
+
+      setFile(finalFile);
+      router.push(`/${cafeId}/preview`);
+    } catch (err) {
+      console.error('File processing error:', err);
+      setError('Failed to process image. Please try again.');
+    } finally {
+      setIsProcessing(false);
     }
-
-    setFile(finalFile);
-    router.push(`/${cafeId}/preview`);
   };
-
-
 
   return (
     <div className={styles.heroContainer}>
@@ -160,18 +213,21 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               className="visually-hidden"
               accept=".pdf,.png,.jpg,.jpeg,image/*"
               onChange={handleFileChange}
+              disabled={isProcessing}
             />
             <Button
               variant="primary"
               size="large"
               fullWidth
+              disabled={isProcessing}
               onClick={() => {
                 setError('');
                 docInputRef.current?.click();
               }}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
-              <UploadCloud size={18} /> Upload Document
+              {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
+              {isProcessing ? 'Processing...' : 'Upload Document'}
             </Button>
           </div>
 
@@ -181,21 +237,24 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               ref={cameraInputRef}
               type="file"
               className="visually-hidden"
-              accept=".jpg,.jpeg,.png" 
-              
+              accept="image/*"
+              capture="environment" // 🛡️ Ye mobile ka direct rear camera open karega
               onChange={handleFileChange}
+              disabled={isProcessing}
             />
             <Button
               variant="secondary"
               size="large"
               fullWidth
+              disabled={isProcessing}
               onClick={() => {
                 setError('');
                 cameraInputRef.current?.click();
               }}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
-              <Camera size={18} /> Take Photo
+              {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+              {isProcessing ? 'Processing...' : 'Take Photo'}
             </Button>
           </div>
         </div>
