@@ -59,32 +59,33 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
   };
 
   const setFile = (newFile: File | null) => {
-    console.log("🔍 DEBUG - setFile called with:", newFile?.name);
-    
-    // 1. Instantly revoke the old file to release RAM
-    if (filePreviewUrl) {
-      URL.revokeObjectURL(filePreviewUrl);
-    }
+  
+  if (filePreviewUrl) {
+    URL.revokeObjectURL(filePreviewUrl);
+  }
 
-    setFileState(newFile);
-
-    if (newFile) {
-      // 2. Generate a fresh URL container
-      const url = URL.createObjectURL(newFile);
-      setFilePreviewUrl(url);
-      
-      // Clean stale array tracking elements immediately
-      if (items.length > 0) {
-        items.forEach(item => { if (item.url) URL.revokeObjectURL(item.url); });
+  if (items && items.length > 0) {
+    items.forEach(item => {
+      if (item.url) {
+        URL.revokeObjectURL(item.url);
       }
-      setItems([]); 
-      setActiveItemId(null);
-    } else {
-      setFilePreviewUrl(null);
-      setItems([]);
-      setActiveItemId(null);
-    }
-  };
+    });
+  }
+
+  setFileState(newFile);
+
+  if (newFile) {
+    const url = URL.createObjectURL(newFile);
+    setFilePreviewUrl(url);
+    setItems([]); 
+    setActiveItemId(null);
+  } else {
+    setFilePreviewUrl(null);
+    setItems([]);
+    setActiveItemId(null);
+  }
+};
+
 
   const updateActiveItemFile = (newFile: File) => {
     const newUrl = URL.createObjectURL(newFile);

@@ -68,39 +68,42 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
     };
   }, [cafeId]);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const selectedFile = e.target.files?.[0];
-  if (!selectedFile) return;
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
 
-  setError('');
-  e.target.value = '';
+    setError('');
+    
+    // 🛡️ 1. सबसे पहले पुरानी फाइल की मेमोरी पूरी तरह खाली करें (यह लाइन जरूरी है)
+    setFile(null); 
 
-  const isPdf = selectedFile.type === 'application/pdf';
-  const isImage = selectedFile.type.startsWith('image/');
+    // 🛡️ 2. इनपुट रेफरेंस को तुरंत फ्री करें ताकि ब्राउज़र फाइल होल्ड न करे
+    const rawFile = selectedFile;
+    e.target.value = ''; 
 
-  if (!isImage && !isPdf) {
-    setError('❌ Invalid file format! Please choose PDF, JPG, or PNG.');
-    return;
-  }
+    const isPdf = rawFile.type === 'application/pdf';
+    const isImage = rawFile.type.startsWith('image/');
 
-  let finalFile = selectedFile;
-
-  if (isImage) {
-    try {
-      // Background worker handles the scale down securely
-      finalFile = await compressImage(selectedFile);
-    } catch (err) {
-      console.warn('Compression bypassed:', err);
+    if (!isImage && !isPdf) {
+      setError('❌ Invalid file format! Please choose PDF, JPG, or PNG.');
+      return;
     }
-  }
 
-  setFile(finalFile);
-  
-  // Clean up input value immediately to release reference pointer from DOM memory
-  e.target.value = ''; 
-  
-  router.push(`/${cafeId}/preview`);
-};
+    let finalFile = rawFile;
+
+    if (isImage) {
+      try {
+        // Background worker handles the scale down securely
+        finalFile = await compressImage(rawFile);
+      } catch (err) {
+        console.warn('Compression bypassed:', err);
+      }
+    }
+
+    setFile(finalFile);
+    router.push(`/${cafeId}/preview`);
+  };
+
 
 
   return (
