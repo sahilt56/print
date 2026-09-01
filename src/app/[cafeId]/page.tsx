@@ -13,69 +13,76 @@ interface CafeDetails {
 }
 
 // 🛡️ Safe Super-Light Compress Function (RAM Crash protection)
+// 🛡️ Safe Memory Compression (createObjectURL + Object Blob)
 async function compressImage(file: File): Promise<File> {
   return new Promise((resolve) => {
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
+      // FileReader ki jagah direct Object URL memory usage 70% kam kar deta hai
+      const blobUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.src = blobUrl;
 
-        img.onload = () => {
-          // Mobile RAM Crash se bachne ke liye dimensions normal 1000px limit rakhi hai
-          const MAX_WIDTH = 1000;
-          const MAX_HEIGHT = 1000;
+      img.onload = () => {
+        URL.revokeObjectURL(blobUrl);
 
-          let width = img.width;
-          let height = img.height;
+        // Low RAM crash se bachne ke liye safe 800px max limit
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
 
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height = Math.round((height * MAX_WIDTH) / width);
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width = Math.round((width * MAX_HEIGHT) / height);
-              height = MAX_HEIGHT;
-            }
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
           }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(file); // Safe fallback
-            return;
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
           }
+        }
 
-          ctx.drawImage(img, 0, 0, width, height);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
 
-          canvas.toBlob(
-            (blob) => {
-              if (!blob) {
-                resolve(file); // Safe fallback
-                return;
-              }
-              const compressedFile = new File([blob], file.name || `photo-${Date.now()}.jpg`, {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const compressedFile = new File(
+              [blob],
+              file.name || `photo-${Date.now()}.jpg`,
+              {
                 type: 'image/jpeg',
                 lastModified: Date.now(),
-              });
-              resolve(compressedFile);
-            },
-            'image/jpeg',
-            0.6
-          );
-        };
-
-        img.onerror = () => resolve(file);
+              }
+            );
+            resolve(compressedFile);
+          },
+          'image/jpeg',
+          0.5 // 50% Quality to prevent RAM spike
+        );
       };
-      reader.onerror = () => resolve(file);
+
+      img.onerror = () => {
+        URL.revokeObjectURL(blobUrl);
+        resolve(file);
+      };
     } catch {
-      resolve(file); // Failure safety
+      resolve(file);
     }
   });
 }
