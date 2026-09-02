@@ -1,4 +1,4 @@
-# QR Print Cafe - Local Print Agent
+# Scan2Print - Local Print Agent
 
 A standalone Node.js script that runs on the Cyber Cafe's Windows PC and bridges the web server to the physical printer.
 

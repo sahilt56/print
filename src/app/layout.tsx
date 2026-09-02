@@ -3,7 +3,7 @@ import { PrintJobProvider } from "@/context/PrintJobContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "QR Print Cafe",
+  title: "Scan2Print",
   description: "Fast and simple document printing.",
 };
 

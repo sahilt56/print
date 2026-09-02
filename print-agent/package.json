@@ -1,7 +1,7 @@
 {
   "name": "print-agent",
   "version": "1.0.0",
-  "description": "Local Print Agent for QR Print Cafe",
+  "description": "Local Print Agent for Scan2Print",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

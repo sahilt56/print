@@ -46,7 +46,7 @@ export function RazorpayCheckout({ jobId, cafeId, onSuccess, onError }: Razorpay
         key: data.keyId,
         amount: data.amount,
         currency: data.currency,
-        name: 'QR Print Cafe',
+        name: 'Scan2Print',
         description: `Print Job #${jobId}`,
         order_id: data.orderId,
         handler: async function (response: any) {

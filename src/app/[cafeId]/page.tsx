@@ -106,7 +106,6 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
           <div className={styles.overlay} />
         </div>
       )}
-
       <div className={styles.contentWrapper}>
         <div className={styles.header}>
           {cafeData?.logoUrl && (
@@ -175,6 +174,9 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
         <div className={styles.footer}>
           <p>Supported: PDF, JPG, PNG (Max 12MB)</p>
         </div>
+        <p style={{ fontSize: '0.9rem', color: '#b3b4b3', marginTop: '9px' }}>
+             Aapke documents yahan bilkul safe hain aur 24 ghante mein sab kuch auto-wipe ho jata hai, hum koi permanent data ya files apne paas store nahi karte.
+          </p>
       </div>
     </div>
   );
