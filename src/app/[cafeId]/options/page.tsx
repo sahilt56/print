@@ -97,6 +97,7 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
   };
 
   const pageCount = calculatePageCount(selectedPages);
+  const isPdf = file.type === 'application/pdf';
 
   const handleCopiesChange = (delta: number) => {
     setCopies(Math.max(1, Math.min(100, copies + delta)));
@@ -104,18 +105,23 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
 
   const totalAmount = Number(pageCount) * Number(copies) * Number(prices[colorMode as keyof typeof prices] || 2);
 
-  const uploadAndCreateJob = async () => {
+    const uploadAndCreateJob = async () => {
     const formData = new FormData();
 
     formData.append('cafeId', cafeId);
-    formData.append('fileName', items[0]?.file.name || 'document.png');
-    formData.append('fileType', items[0]?.file.type || 'image/png');
+    
+    // 💡 फिक्स 1: 'items[0]' के बजाय सीधे 'file' ऑब्जेक्ट का इस्तेमाल करें जो असली PDF है
+    // इससे बैकएंड और क्लाउडिनरी को पता चलेगा कि यह एक असली PDF है, इमेज नहीं!
+    formData.append('fileName', file?.name || 'document.pdf');
+    formData.append('fileType', file?.type || 'application/pdf');
+    
     formData.append('pageCount', String(pageCount));
     formData.append('selectedPages', selectedPages || 'all');
     formData.append('colorMode', colorMode);
     formData.append('paperSize', 'A4');
     formData.append('copies', String(copies));
     formData.append('paymentMethod', 'cash');
+    
     formData.append(
       'layout',
       JSON.stringify(
@@ -129,9 +135,14 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
       )
     );
 
-    items.forEach((item) => {
-      formData.append('files', item.file);
-    });
+    // 💡 फिक्स 2: कनवर्टेड इमेजेस के बजाय सीधे ओरिजिनल PDF फ़ाइल को 'files' में भेजें
+    if (file) {
+      formData.append('files', file);
+    } else {
+      items.forEach((item) => {
+        formData.append('files', item.file);
+      });
+    }
 
     const jobRes = await fetch('/api/jobs', {
       method: 'POST',
@@ -146,6 +157,7 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
 
     return await jobRes.json();
   };
+
 
   const handleCashSubmit = async () => {
     if (isSubmitting) return;
@@ -175,26 +187,27 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
       </div>
 
       <Card className={styles.optionsCard}>
-        {/* Page Range Selection Option with Quick Presets */}
-        <div className={styles.optionGroup}>
-          <h3 className={styles.optionTitle}>Pages to Print</h3>
-          <input 
-            type="text" 
-            value={selectedPages} 
-            onChange={(e) => setSelectedPages(e.target.value)}
-            placeholder="e.g. 1-3, 2,4" 
-            style={{
-              width: '100%',
-              padding: '0.75rem',
-              borderRadius: '8px',
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--background)',
-              color: 'var(--foreground)',
-              fontSize: '1rem',
-              outline: 'none',
-              marginBottom: '0.5rem'
-            }}
-          />
+        {isPdf && <>
+          {/* Page Range Selection Option with Quick Presets */}
+          <div className={styles.optionGroup}>
+            <h3 className={styles.optionTitle}>Pages to Print</h3>
+            <input 
+              type="text" 
+              value={selectedPages} 
+              onChange={(e) => setSelectedPages(e.target.value)}
+              placeholder="e.g. 1-3, 2,4" 
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--background)',
+                color: 'var(--foreground)',
+                fontSize: '1rem',
+                outline: 'none',
+                marginBottom: '0.5rem'
+              }}
+            />
           
           {/* Quick Preset Buttons */}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -253,7 +266,8 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
           <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.4rem' }}>
             Tip: Specific pages ke liye comma lagayein (jaise: <b>2, 4</b> ya <b>1-3</b>).
           </p>
-        </div>
+          </div>
+        </>}
 
         <div className={styles.optionGroup}>
           <h3 className={styles.optionTitle}>Color</h3>

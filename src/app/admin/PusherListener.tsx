@@ -26,11 +26,15 @@ export default function PusherListener({ cafeId }: PusherListenerProps) {
 
     // 3. Listen for new jobs
     channel.bind('new-print-job', (data: any) => {
+      window.dispatchEvent(new CustomEvent('qr-print-notification', { detail: data }));
 
-      // 🔊 Play sound safely (Catch block stops NotAllowedError console spam)
-      audio.play().catch((err) => {
-        console.warn('Audio play waiting for first user click:', err.message);
-      });
+      // Play sound only when the admin has enabled sound alerts.
+      if (window.localStorage.getItem('qr-print-sound-enabled') !== 'false') {
+        audio.currentTime = 0;
+        audio.play().catch((err) => {
+          console.warn('Audio play waiting for first user click:', err.message);
+        });
+      }
 
       // 🔔 Desktop Push Notification (Jab tab hidden ya unfocused ho)
       if ('Notification' in window && Notification.permission === 'granted') {

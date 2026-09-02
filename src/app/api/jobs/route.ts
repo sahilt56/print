@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
       body = await request.json();
     }
 
+       // 1. बॉडी से सभी ज़रूरी वेरिएबल्स को वापस सही ढंग से निकाला गया
     const {
       cafeId,
       fileUrl,
@@ -236,23 +237,31 @@ export async function POST(request: NextRequest) {
           widthPercent: layoutMeta[index]?.widthPercent ?? 100,
           heightPercent: layoutMeta[index]?.heightPercent ?? 100,
         }));
-
-        uploadedCloudAsset = {
-          public_id: uploadedFiles[0].cloudinaryPublicId,
-          resource_type: uploadedFiles[0].cloudinaryResourceType,
-          format: uploadedFiles[0].cloudinaryFormat,
-          version: uploadedFiles[0].cloudinaryVersion,
-        };
+        
+        if (uploadedFiles[0]) {
+          uploadedCloudAsset = {
+            public_id: uploadedFiles[0].cloudinaryPublicId,
+            resource_type: uploadedFiles[0].cloudinaryResourceType,
+            format: uploadedFiles[0].cloudinaryFormat,
+            version: uploadedFiles[0].cloudinaryVersion,
+          };
+        }
       }
     }
 
-    // 9. Prepare job data
-    const hasLayout = Array.isArray(resolvedLayout) && resolvedLayout.length > 0;
-    const primaryFileUrl = fileUrl || uploadedCloudAsset?.public_id || (hasLayout ? resolvedLayout[0].fileUrl : null);
+    const primaryFileUrl = uploadedCloudAsset?.public_id || fileUrl || null;
+    const hasLayout = resolvedLayout.length > 0;
 
-    // 10. Create job
     let newJob;
     try {
+      // Preserve an explicit page selection; "all" must remain all pages.
+      const finalSelectedPages = selectedPages?.toString().trim() || 'all';
+
+      // मल्टी-पेज होने पर काउंट फिक्स करें
+      const updatedPageCount = finalSelectedPages && finalSelectedPages.includes(',') 
+        ? finalSelectedPages.split(',').length 
+        : finalPageCount;
+
       newJob = await PrintJob.create({
         jobNumber,
         cafeId: cafe._id,
@@ -264,8 +273,10 @@ export async function POST(request: NextRequest) {
         cloudinaryFormat: cloudinaryFormat || uploadedCloudAsset?.format || null,
         cloudinaryVersion: Number.isFinite(Number(cloudinaryVersion)) ? Number(cloudinaryVersion) : (uploadedCloudAsset?.version ?? null),
         layout: hasLayout ? resolvedLayout : [],
-        pageCount: finalPageCount,
-        selectedPages: selectedPages || 'all',
+        pageCount: updatedPageCount,
+        
+        selectedPages: finalSelectedPages,
+        
         colorMode,
         paperSize,
         copies: finalCopies,
@@ -275,6 +286,16 @@ export async function POST(request: NextRequest) {
         paymentStatus: 'pending',
         printStatus: 'queued',
       });
+
+      console.info('[Jobs Create] Print selection saved', {
+        jobId: newJob._id,
+        jobNumber: newJob.jobNumber,
+        fileType,
+        fileName,
+        selectedPages: finalSelectedPages,
+        pageCount: updatedPageCount,
+      });
+      
       try {
         await pusherServer.trigger(`cafe-${cafe._id.toString()}`, 'new-print-job', {
           jobId: newJob._id.toString(),
@@ -292,20 +313,8 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    console.info('[Jobs Create] Job created', {
-      jobId: newJob._id,
-      jobNumber: newJob.jobNumber,
-      cafeId: cafe.qrCode,
-      amount: totalAmount,
-    });
-
-    return apiSuccess({
-      jobId: newJob._id.toString(),
-      jobNumber: newJob.jobNumber,
-      totalAmount: newJob.totalAmount,
-    });
-
+    return apiSuccess({ jobId: newJob._id.toString(), jobNumber: newJob.jobNumber });
   } catch (error) {
-    return internalError(error, 'Job Creation');
+    return internalError(error, 'Jobs Create');
   }
 }

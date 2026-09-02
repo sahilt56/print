@@ -66,28 +66,6 @@ export async function markJobPaid(jobId: string) {
   revalidatePath('/admin');
 }
 
-export async function markJobComplete(jobId: string) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) throw new Error('Unauthorized');
-
-  await dbConnect();
-  const cafeDbId = await getVerifiedCafeId(session.user);
-
-  // 🚀 Fast Direct Update
-  const job = await PrintJob.findOneAndUpdate(
-    { _id: jobId, cafeId: cafeDbId },
-    { $set: { printStatus: 'completed', paymentStatus: 'paid' } },
-    { new: false }
-  ).lean();
-
-  if (job) {
-    // ⚡ Non-blocking background deletion
-    triggerBackgroundCleanup(job);
-  }
-
-  revalidatePath('/admin');
-}
-
 export async function cancelJob(jobId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error('Unauthorized');

@@ -209,6 +209,7 @@ export async function cleanupJobCloudinaryAssets(job: {
   }>;
 }): Promise<void> {
   const itemsToDelete: Array<{ publicId: string; resourceType?: string }> = [];
+  const failedItems: Array<{ publicId: string; resourceType?: string }> = [];
 
   const addCandidate = (publicId?: string | null, resourceType?: string | null) => {
     if (!publicId || typeof publicId !== 'string') return;
@@ -243,9 +244,13 @@ export async function cleanupJobCloudinaryAssets(job: {
       try {
         await deleteDocument(item.publicId, item.resourceType === 'raw' ? 'image' : 'raw');
       } catch {
-        // Intentionally keep the original error log and fall back only once.
+        failedItems.push(item);
       }
     }
+  }
+
+  if (failedItems.length > 0) {
+    throw new Error(`Failed to delete ${failedItems.length} Cloudinary asset(s)`);
   }
 }
 

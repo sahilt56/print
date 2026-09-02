@@ -21,6 +21,7 @@ interface PrintJobState {
   copies: number;
   selectedPages: string;
   setFile: (file: File | null) => void;
+  replaceFile: (file: File, previewUrl: string) => void;
   setItems: React.Dispatch<React.SetStateAction<CanvasItemState[]>>;
   setActiveItemId: (id: string | null) => void;
   updateActiveItemFile: (newFile: File) => void;
@@ -73,6 +74,8 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
   }
 
   setFileState(newFile);
+  setSelectedPages('all');
+  setTotalPages(1);
 
   if (newFile) {
     const url = URL.createObjectURL(newFile);
@@ -106,6 +109,16 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const replaceFile = (newFile: File, previewUrl: string) => {
+    if (filePreviewUrl && filePreviewUrl !== previewUrl) {
+      URL.revokeObjectURL(filePreviewUrl);
+    }
+    setFileState(newFile);
+    setFilePreviewUrl(previewUrl);
+    setSelectedPages('all');
+    setTotalPages(1);
+  };
+
   return (
     <PrintJobContext.Provider
       value={{
@@ -114,6 +127,7 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
         items,
         activeItemId,
         setFile,
+        replaceFile,
         setItems,
         setActiveItemId,
         updateActiveItemFile,

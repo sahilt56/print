@@ -22,7 +22,9 @@ async function dbConnect() {
       bufferCommands: false,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
+    cached.promise = mongoose.connect(MONGODB_URI, opts).then(async (mongoose) => {
+      // Remove the legacy TTL index; cleanup now deletes assets before jobs.
+      await mongoose.connection.db?.collection('printjobs').dropIndex('createdAt_1').catch(() => {});
       return mongoose;
     });
   }

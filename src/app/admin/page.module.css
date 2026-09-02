@@ -20,6 +20,14 @@
   font-size: 0.95rem;
 }
 
+.headerActions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .section {
   margin-bottom: 2.5rem;
 }
@@ -237,4 +245,16 @@
   background-color: #ef4444;
   color: white;
   border-color: #ef4444;
+}
+
+@media (max-width: 560px) {
+  .header {
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }

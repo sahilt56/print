@@ -594,6 +594,7 @@ export default function PreviewPage({
     activeItemId,
     setActiveItemId,
     setFile,
+    replaceFile,
     setTotalPages,
   } = usePrintJob();
 
@@ -837,6 +838,8 @@ const isMounted = useIsMounted();
 
     const newUrl = URL.createObjectURL(nextFile);
     const isPdfFile = nextFile.type === 'application/pdf';
+
+    replaceFile(nextFile, newUrl);
 
     if (isPdfFile) {
       const pages = await countPdfPages(nextFile);

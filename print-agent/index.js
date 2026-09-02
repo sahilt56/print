@@ -81,7 +81,7 @@ const pollJobs = async () => {
 
     const job = response.data.job;
     if (job) {
-      console.log(`\n[${new Date().toLocaleTimeString()}] New job received: #${job.jobNumber}`);
+      console.log(`\n[${new Date().toLocaleTimeString()}] New job received: #${job.jobNumber} (ID: ${job.id}, Pages: ${job.pageRange || 'all'}, Layout items: ${Array.isArray(job.layout) ? job.layout.length : 0})`);
       await processJob(job);
     }
   } catch (error) {
@@ -92,6 +92,7 @@ const pollJobs = async () => {
 };
 
 // ─── Job Processor with Canvas Multi-Item Support ─────────────────────────────
+// ─── Super-Safe Job Processor for Agent ─────────────────────────────
 const processJob = async (job) => {
   const localPdfPath = path.join(tempDir, `${job.id}_final.pdf`);
 
@@ -103,35 +104,41 @@ const processJob = async (job) => {
       : [];
 
     if (layoutItems && layoutItems.length > 0) {
-      console.log(`  Creating A4 layout for ${layoutItems.length} item(s)...`);
+      console.log(`  Creating layout for ${layoutItems.length} item(s)...`);
 
       const pdfDoc = await PDFDocument.create();
-      const page = pdfDoc.addPage([595.28, 841.89]);
-      const { width: PAGE_WIDTH, height: PAGE_HEIGHT } = page.getSize();
 
       for (const item of layoutItems) {
         const itemUrl = getFullUrl(item.fileUrl || job.downloadUrl || job.fileUrl);
-        console.log(`  Downloading image asset: ${itemUrl}`);
+        console.log(`  Downloading asset: ${itemUrl}`);
 
-        // Fetch without custom Auth headers for static uploaded files
         const imageRes = await axios.get(itemUrl, {
           responseType: 'arraybuffer'
         });
-        const imageBuffer = Buffer.from(imageRes.data);
+        const fileBuffer = Buffer.from(imageRes.data);
 
-        let embeddedImage;
-        try {
-          embeddedImage = await pdfDoc.embedPng(imageBuffer);
-        } catch (e) {
-          embeddedImage = await pdfDoc.embedJpg(imageBuffer);
+        if (itemUrl.toLowerCase().includes('.pdf') || (item.fileType && item.fileType.toLowerCase().includes('pdf'))) {
+          const srcPdfDoc = await PDFDocument.load(fileBuffer);
+          const copiedPages = await pdfDoc.copyPages(srcPdfDoc, srcPdfDoc.getPageIndices());
+          copiedPages.forEach((page) => pdfDoc.addPage(page));
+        } else {
+          const page = pdfDoc.addPage([595.28, 841.89]);
+          const { width: PAGE_WIDTH, height: PAGE_HEIGHT } = page.getSize();
+
+          let embeddedImage;
+          try {
+            embeddedImage = await pdfDoc.embedPng(fileBuffer);
+          } catch (e) {
+            embeddedImage = await pdfDoc.embedJpg(fileBuffer);
+          }
+
+          const x = (item.xPercent / 100) * PAGE_WIDTH;
+          const width = (item.widthPercent / 100) * PAGE_WIDTH;
+          const height = (item.heightPercent / 100) * PAGE_HEIGHT;
+          const y = PAGE_HEIGHT - ((item.yPercent / 100) * PAGE_HEIGHT) - height;
+
+          page.drawImage(embeddedImage, { x, y, width, height });
         }
-
-        const x = (item.xPercent / 100) * PAGE_WIDTH;
-        const width = (item.widthPercent / 100) * PAGE_WIDTH;
-        const height = (item.heightPercent / 100) * PAGE_HEIGHT;
-        const y = PAGE_HEIGHT - ((item.yPercent / 100) * PAGE_HEIGHT) - height;
-
-        page.drawImage(embeddedImage, { x, y, width, height });
       }
 
       const pdfBytes = await pdfDoc.save();
@@ -154,7 +161,12 @@ const processJob = async (job) => {
       sumatraPdfPath,
     };
 
-    console.log(`  Printing A4 Sheet... (Copies: ${printOptions.copies}, Mode: ${job.colorMode})`);
+    const selectedPages = typeof job.pageRange === 'string' ? job.pageRange.trim() : '';
+    if (selectedPages && selectedPages.toLowerCase() !== 'all') {
+      printOptions.pages = selectedPages;
+    }
+
+    console.log(`  Printing A4 Sheet... (Copies: ${printOptions.copies}, Mode: ${job.colorMode}, Pages: ${selectedPages || 'all'})`);
     await print(localPdfPath, printOptions);
 
     console.log(`  ✅ Job #${job.jobNumber} printed successfully!`);
@@ -169,6 +181,8 @@ const processJob = async (job) => {
     }
   }
 };
+
+
 
 // ─── Status Updater ──────────────────────────────────────────────────────────
 const updateJobStatus = async (jobId, status, errorMsg = null) => {

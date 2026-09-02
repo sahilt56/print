@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/Button';
-import { markJobPaid, markJobComplete, cancelJob } from './actions';
+import { markJobPaid, cancelJob } from './actions';
 import styles from './page.module.css';
 
 interface JobActionsProps {
@@ -23,14 +23,7 @@ export function JobActions({ jobId, paymentStatus, printStatus }: JobActionsProp
           </Button>
         </form>
       )}
-      {isPaid && !isDone && (
-        <form action={async () => { 'use server'; await markJobComplete(jobId); }}>
-          <Button variant="primary" type="submit">
-            🖨️ Mark Printed
-          </Button>
-        </form>
-      )}
-      {!isDone && (
+      {!isDone && !isPaid && (
         <form action={async () => { 'use server'; await cancelJob(jobId); }}>
           <Button variant="danger" type="submit">
             ✕ Cancel

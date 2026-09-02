@@ -45,9 +45,7 @@ const PrintJobSchema = new Schema(
     lastHeartbeat: { type: Date, default: null },
     attemptCount: { type: Number, default: 0, min: 0 },
     maxAttempts: { type: Number, default: 3 },
-    // Automatic DB Cleanup: 24 hours baad expired jobs auto-delete honge.
-    // This ensures cancelled/failed/successful jobs are retained only for the configured window.
-    createdAt: { type: Date, default: Date.now, expires: 86400 },
+    createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );

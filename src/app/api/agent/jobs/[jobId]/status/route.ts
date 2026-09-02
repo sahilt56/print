@@ -48,10 +48,12 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden: Invalid Secret Key' }, { status: 403 });
     }
 
+    let cleanupSucceeded = true;
     if (status === 'completed' || status === 'failed') {
       try {
         await cleanupJobCloudinaryAssets(job.toObject ? job.toObject() : job);
       } catch (error) {
+        cleanupSucceeded = false;
         console.warn('[Agent Status] Cloudinary cleanup failed', { jobId, status, error });
       }
 
@@ -77,13 +79,15 @@ export async function POST(
     if (status === 'completed') {
       job.paymentStatus = 'paid';
     }
-    job.fileUrl = null;
-    job.layout = [];
-    job.fileName = 'Deleted for Privacy';
-    job.cloudinaryPublicId = null;
-    job.cloudinaryResourceType = null;
-    job.cloudinaryFormat = null;
-    job.cloudinaryVersion = null;
+    if (cleanupSucceeded) {
+      job.fileUrl = null;
+      job.layout = [];
+      job.fileName = 'Deleted for Privacy';
+      job.cloudinaryPublicId = null;
+      job.cloudinaryResourceType = null;
+      job.cloudinaryFormat = null;
+      job.cloudinaryVersion = null;
+    }
     await job.save();
 
     return NextResponse.json({ success: true });

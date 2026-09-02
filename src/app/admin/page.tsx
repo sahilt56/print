@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Layout } from '@/components/ui/Layout';
 import { Card } from '@/components/ui/Card';
 import styles from './page.module.css';
-import { markJobPaid, markJobComplete, cancelJob } from './actions';
+import { markJobPaid, cancelJob } from './actions';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
@@ -15,6 +15,8 @@ import PrintJob from '@/models/PrintJob';
 import { redirect } from 'next/navigation';
 import LogoutButton from './LogoutButton';
 import PusherListener from './PusherListener';
+import NotificationCenter from './NotificationCenter';
+import EnableSoundBtn from './EnableSoundBtn';
 import mongoose from 'mongoose';
 import { 
   Clock, 
@@ -32,6 +34,7 @@ import {
 const STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
   pending: 'Waiting',
+  claimed: 'Printing...',
   printing: 'Printing...',
   completed: 'Completed',
   cancelled: 'Cancelled',
@@ -126,7 +129,7 @@ export default async function AdminDashboard() {
 
   const pending = jobs.filter(j => ['queued', 'pending'].includes(j.printStatus) && j.paymentStatus !== 'paid');
   const paid = jobs.filter(j => ['queued', 'pending'].includes(j.printStatus) && j.paymentStatus === 'paid');
-  const inProgress = jobs.filter(j => j.printStatus === 'printing');
+  const inProgress = jobs.filter(j => ['claimed', 'printing'].includes(j.printStatus));
   const done = jobs.filter(j => ['completed', 'cancelled', 'failed'].includes(j.printStatus));
   // Simple script to request notification permission:
 const requestNotification = () => {
@@ -148,7 +151,9 @@ const requestNotification = () => {
           <h1 className={styles.title}>Admin Dashboard</h1>
           <p className={styles.subtitle}>{cafe.name}&apos;s Print Queue</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+        <div className={styles.headerActions}>
+          <NotificationCenter />
+          <EnableSoundBtn />
           <Link href="/admin/settings" className={`${styles.btn} ${styles.btnSecondary}`}>
             <Settings size={16} /> Settings
           </Link>
@@ -194,18 +199,6 @@ const requestNotification = () => {
             {paid.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.readyCard}`}>
                 <JobCard job={job} />
-                <div className={styles.actions}>
-                  <form action={markJobComplete.bind(null, job.id)}>
-                    <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`}>
-                      <Printer size={15} /> Mark Printed
-                    </button>
-                  </form>
-                  <form action={cancelJob.bind(null, job.id)}>
-                    <button type="submit" className={`${styles.btn} ${styles.btnDanger}`}>
-                      <X size={15} /> Cancel
-                    </button>
-                  </form>
-                </div>
               </Card>
             ))}
           </div>
@@ -222,13 +215,6 @@ const requestNotification = () => {
             {inProgress.map(job => (
               <Card key={job.id} className={`${styles.jobCard} ${styles.printingCard}`}>
                 <JobCard job={job} />
-                <div className={styles.actions}>
-                  <form action={markJobComplete.bind(null, job.id)}>
-                    <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`}>
-                      <CheckCircle size={15} /> Mark Complete
-                    </button>
-                  </form>
-                </div>
               </Card>
             ))}
           </div>

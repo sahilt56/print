@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'; // 👈 यह Next.js को मजबूर करेगा कि वह हर बार ताज़ा डेटा ही भेजे, पुराना कैश नहीं!
+export const revalidate = 0;
 import { NextRequest } from 'next/server';
 import dbConnect from '@/lib/dbConnect';
 import Cafe from '@/models/Cafe';
@@ -137,16 +139,39 @@ export async function GET(request: NextRequest) {
       agentId: cafeDoc._id,
     });
 
+    const isPdfFile = [
+      job.fileType,
+      job.fileName,
+      job.cloudinaryFormat,
+    ].some((value) => String(value || '').toLowerCase().includes('pdf'))
+      || job.cloudinaryResourceType === 'raw';
+
+    console.info('[Agent Jobs] Print selection prepared', {
+      jobId: job._id,
+      fileType: job.fileType,
+      fileName: job.fileName,
+      cloudinaryFormat: job.cloudinaryFormat,
+      isPdfFile,
+      selectedPages: job.selectedPages || 'all',
+    });
+
     return apiSuccess({
       job: {
         id: job._id.toString(),
         jobNumber: job.jobNumber,
         downloadUrl,
         copies: job.copies || 1,
+        
+        // 💡 फ़िक्स 1: एजेंट 'colorMode' रीड करता है, उसे सही वैल्यू पास करें
         colorMode: job.colorMode || 'bw',
         paperSize: job.paperSize || 'A4',
-        layout: normalizedLayout ?? job.layout ?? null,
+
+        // 💡 फ़िक्स 2: अगर असली PDF है, तो layout को खाली '[]' भेजें ताकि एजेंट सीधा सिंगल फाइल डाउनलोड मोड में जाए
+        layout: isPdfFile ? [] : (normalizedLayout ?? job.layout ?? null),
+        
         pageCount: job.pageCount || 1,
+
+        pageRange: job.selectedPages || 'all',
       },
     });
 
