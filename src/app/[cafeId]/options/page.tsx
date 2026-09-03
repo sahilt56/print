@@ -135,14 +135,10 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
       )
     );
 
-    // 💡 फिक्स 2: कनवर्टेड इमेजेस के बजाय सीधे ओरिजिनल PDF फ़ाइल को 'files' में भेजें
-    if (file) {
-      formData.append('files', file);
-    } else {
-      items.forEach((item) => {
-        formData.append('files', item.file);
-      });
-    }
+    // Send every canvas item so the print agent can compose all added images.
+    items.forEach((item) => {
+      formData.append('files', item.file);
+    });
 
     const jobRes = await fetch('/api/jobs', {
       method: 'POST',
