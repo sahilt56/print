@@ -30,6 +30,8 @@ interface PrintJobState {
   setSelectedPages: (pages: string) => void;
   totalPages: number;
   setTotalPages: (pages: number) => void;
+  canvasSize: { width: number; height: number };
+  setCanvasSize: (size: { width: number; height: number }) => void;
   clearAllMemory: () => void; // 🛡️ New function to hard-reset memory leak hooks
 }
 
@@ -44,6 +46,7 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
   const [copies, setCopies] = useState<number>(1);
   const [selectedPages, setSelectedPages] = useState<string>('all');
   const [totalPages, setTotalPages] = useState<number>(1);
+  const [canvasSize, setCanvasSize] = useState({ width: 380, height: 537.4 });
 
   // 🛡️ Safe Garbage collection utility
   const clearAllMemory = () => {
@@ -139,6 +142,8 @@ export function PrintJobProvider({ children }: { children: ReactNode }) {
         setSelectedPages,
         totalPages,
         setTotalPages,
+        canvasSize,
+        setCanvasSize,
         clearAllMemory
       }}
     >

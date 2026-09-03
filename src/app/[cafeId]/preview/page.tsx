@@ -613,6 +613,7 @@ export default function PreviewPage({
     setFile,
     replaceFile,
     setTotalPages,
+    setCanvasSize,
   } = usePrintJob();
 
   const { cafeId } = React.use(params);
@@ -636,6 +637,7 @@ const isMounted = useIsMounted();
   const closeWebcam = () => {
     webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
     webcamStreamRef.current = null;
+    if (webcamVideoRef.current) webcamVideoRef.current.srcObject = null;
     setIsWebcamOpen(false);
   };
 
@@ -709,6 +711,10 @@ const isMounted = useIsMounted();
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (a4Width > 0) setCanvasSize({ width: a4Width, height: a4Width * A4_RATIO });
+  }, [a4Width, setCanvasSize]);
 
   const currentCanvasWidth = a4Width > 0 ? a4Width : 360;
   const currentCanvasHeight = currentCanvasWidth * A4_RATIO;
@@ -870,11 +876,11 @@ const isMounted = useIsMounted();
             const updatedUrl = URL.createObjectURL(blob);
 
             setItems((previous) =>
-              previous.map((item) =>
-                item.id === selectedItem.id
-                  ? { ...item, file: updatedFile, url: updatedUrl }
-                  : item
-              )
+              previous.map((item) => {
+                if (item.id !== selectedItem.id) return item;
+                if (item.url) URL.revokeObjectURL(item.url);
+                return { ...item, file: updatedFile, url: updatedUrl };
+              })
             );
           }
           setIsRotating(false);
@@ -1026,7 +1032,9 @@ const isMounted = useIsMounted();
     }
 
     if (activeItemId) {
+      const deletedItem = items.find((item) => item.id === activeItemId);
       const filtered = items.filter((item) => item.id !== activeItemId);
+      if (deletedItem?.url) URL.revokeObjectURL(deletedItem.url);
       setItems(filtered);
       setActiveItemId(filtered[0]?.id || null);
     }

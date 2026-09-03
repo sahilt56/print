@@ -35,6 +35,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   const closeWebcam = () => {
     webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
     webcamStreamRef.current = null;
+    if (webcamVideoRef.current) webcamVideoRef.current.srcObject = null;
     setIsWebcamOpen(false);
   };
 

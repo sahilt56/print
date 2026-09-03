@@ -11,7 +11,7 @@ import { ArrowLeft } from 'lucide-react';
 
 export default function OptionsPage({ params }: { params: Promise<{ cafeId: string }> }) {
   const router = useRouter();
-  const { file, items, colorMode, setColorMode, copies, setCopies, selectedPages, setSelectedPages, totalPages } = usePrintJob();
+  const { file, items, colorMode, setColorMode, copies, setCopies, selectedPages, setSelectedPages, totalPages, canvasSize } = usePrintJob();
   const { cafeId } = React.use(params);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -127,10 +127,10 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
       JSON.stringify(
         items.map((item) => ({
           id: item.id,
-          xPercent: (item.pos.x / 380) * 100,
-          yPercent: (item.pos.y / 537.4) * 100,
-          widthPercent: (item.size.width / 380) * 100,
-          heightPercent: (item.size.height / 537.4) * 100,
+          xPercent: (item.pos.x / canvasSize.width) * 100,
+          yPercent: (item.pos.y / canvasSize.height) * 100,
+          widthPercent: (item.size.width / canvasSize.width) * 100,
+          heightPercent: (item.size.height / canvasSize.height) * 100,
         }))
       )
     );
