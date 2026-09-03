@@ -29,6 +29,9 @@ import {
   Trash2,
   ArrowLeft,
   ArrowRight,
+  Camera,
+  Images,
+  X,
 } from 'lucide-react';
 
 /* -------------------------------------------------------------------------- */
@@ -571,6 +574,21 @@ const zoomButtonStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+const imageSourceButtonStyle: React.CSSProperties = {
+  minHeight: 84,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  border: '1px solid var(--border, #cbd5e1)',
+  borderRadius: 10,
+  background: 'var(--background, #fff)',
+  color: 'var(--foreground, #0f172a)',
+  fontSize: 14,
+  cursor: 'pointer',
+};
+
 /* -------------------------------------------------------------------------- */
 /* PREVIEW PAGE                                                              */
 /* -------------------------------------------------------------------------- */
@@ -602,12 +620,14 @@ export default function PreviewPage({
 
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const addImageInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const a4Ref = useRef<HTMLDivElement>(null);
 
   const [a4Width, setA4Width] = useState(0);
   const [isRotating, setIsRotating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [isAddImagePickerOpen, setIsAddImagePickerOpen] = useState(false);
   // ✅ ISKO ADD KAREIN:
 const isMounted = useIsMounted();
 
@@ -870,38 +890,70 @@ const isMounted = useIsMounted();
   event.target.value = '';
 };
 
-  const handleAddAnotherImage = (event: React.ChangeEvent<HTMLInputElement>) => {
-  const newFile = event.target.files?.[0];
-  if (newFile) {
+  const prepareImageForUpload = async (imageFile: File) => {
+    if (imageFile.size <= 8 * 1024 * 1024) return imageFile;
+
+    const imageUrl = URL.createObjectURL(imageFile);
+    try {
+      const image = new Image();
+      image.src = imageUrl;
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('Unable to read camera image'));
+      });
+
+      const scale = Math.min(1, 2400 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return imageFile;
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84));
+      return blob ? new File([blob], imageFile.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }) : imageFile;
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
+
+  const handleAddAnotherImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = '';
+    if (!selectedFile) return;
+
     setError('');
-  if (newFile.size > 12 * 1024 * 1024) {
+    if (selectedFile.size > 12 * 1024 * 1024) {
       setError('❌ File size must be less than 12 MB. Please select a smaller file.');
-      event.target.value = '';
       return;
     }
 
-    const newUrl = URL.createObjectURL(newFile);
-    const newId = `item-${Date.now()}`;
-    const offset = items.length * 25;
+    try {
+      const newFile = await prepareImageForUpload(selectedFile);
+      const newUrl = URL.createObjectURL(newFile);
+      const newId = `item-${Date.now()}`;
+      const offset = items.length * 25;
 
-    const newItem: CanvasItemState = {
-      id: newId,
-      file: newFile,
-      url: newUrl,
-      isImage: newFile.type.startsWith('image/'),
-      isPdf: newFile.type === 'application/pdf',
-      pos: {
-        x: Math.min(Math.max(0, currentCanvasWidth - 160), 20 + offset),
-        y: Math.min(Math.max(0, currentCanvasHeight - 110), 20 + offset),
-      },
-      size: { width: 150, height: 100 },
-    };
+      const newItem: CanvasItemState = {
+        id: newId,
+        file: newFile,
+        url: newUrl,
+        isImage: newFile.type.startsWith('image/'),
+        isPdf: false,
+        pos: {
+          x: Math.min(Math.max(0, currentCanvasWidth - 160), 20 + offset),
+          y: Math.min(Math.max(0, currentCanvasHeight - 110), 20 + offset),
+        },
+        size: { width: 150, height: 100 },
+      };
 
-    setItems((previous) => [...previous, newItem]);
-    setActiveItemId(newId);
-  }
-  event.target.value = '';
-};
+      setItems((previous) => [...previous, newItem]);
+      setActiveItemId(newId);
+    } catch (error) {
+      console.error('Image preparation error:', error);
+      setError('Unable to prepare this image. Please choose another photo.');
+    }
+  };
   const handleDelete = () => {
     if (items.length <= 1) {
       setFile(null);
@@ -1095,7 +1147,7 @@ const isMounted = useIsMounted();
         {!selectedItem?.isPdf && (
           <Button
             variant="secondary"
-            onClick={() => addImageInputRef.current?.click()}
+            onClick={() => setIsAddImagePickerOpen(true)}
             disabled={isUploading}
             style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}
           >
@@ -1127,13 +1179,82 @@ const isMounted = useIsMounted();
       />
 
       <input
-        ref={addImageInputRef}
+        ref={cameraInputRef}
         type="file"
         className="visually-hidden"
-        accept=".png,.jpg,.jpeg"
+        accept="image/*"
         capture="environment"
         onChange={handleAddAnotherImage}
       />
+
+      <input
+        ref={addImageInputRef}
+        type="file"
+        className="visually-hidden"
+        accept="image/*"
+        onChange={handleAddAnotherImage}
+      />
+
+      {isAddImagePickerOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-image-picker-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            padding: '1rem',
+            background: 'rgba(15, 23, 42, 0.45)',
+          }}
+          onClick={() => setIsAddImagePickerOpen(false)}
+        >
+          <div
+            style={{
+              width: 'min(100%, 380px)',
+              padding: '1rem',
+              borderRadius: '14px',
+              background: 'var(--background, #fff)',
+              boxShadow: '0 20px 40px rgba(15, 23, 42, 0.22)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+              <h2 id="add-image-picker-title" style={{ margin: 0, fontSize: '1rem' }}>Add image from</h2>
+              <button type="button" aria-label="Close image picker" onClick={() => setIsAddImagePickerOpen(false)} style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: 4 }}>
+                <X size={19} />
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddImagePickerOpen(false);
+                  cameraInputRef.current?.click();
+                }}
+                style={imageSourceButtonStyle}
+              >
+                <Camera size={22} />
+                Camera
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddImagePickerOpen(false);
+                  addImageInputRef.current?.click();
+                }}
+                style={imageSourceButtonStyle}
+              >
+                <Images size={22} />
+                Media picker
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Button
         variant="ghost"
