@@ -629,6 +629,7 @@ export default function PreviewPage({
   const [error, setError] = useState<string>('');
   const [isAddImagePickerOpen, setIsAddImagePickerOpen] = useState(false);
   const [isWebcamOpen, setIsWebcamOpen] = useState(false);
+  const [cameraError, setCameraError] = useState('');
   // ✅ ISKO ADD KAREIN:
 const isMounted = useIsMounted();
 
@@ -641,8 +642,15 @@ const isMounted = useIsMounted();
   useEffect(() => closeWebcam, []);
 
   const openWebcam = async () => {
+    setCameraError('');
+    if (!window.isSecureContext) {
+      setCameraError('Camera permission ke liye website HTTPS par open honi chahiye.');
+      setIsWebcamOpen(true);
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError('Webcam is not supported in this browser. Please use the media picker.');
+      setCameraError('Is browser me webcam supported nahi hai. Media picker use karein.');
+      setIsWebcamOpen(true);
       return;
     }
 
@@ -660,7 +668,8 @@ const isMounted = useIsMounted();
       });
     } catch (webcamError) {
       console.error('Webcam permission error:', webcamError);
-      setError('Camera permission nahi mili. Browser settings me camera allow karke dobara try karein.');
+      setCameraError('Address bar ke camera icon par click karke Camera ko Allow karein, phir Try again dabayein.');
+      setIsWebcamOpen(true);
     }
   };
 
@@ -1264,16 +1273,25 @@ const isMounted = useIsMounted();
                 <X size={21} />
               </button>
             </div>
-            <video
-              ref={webcamVideoRef}
-              autoPlay
-              muted
-              playsInline
-              style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 12, background: '#000' }}
-            />
-            <Button variant="primary" size="large" fullWidth onClick={captureWebcamImage} style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              <Camera size={18} /> Capture photo
-            </Button>
+            {cameraError ? (
+              <div style={{ color: '#fff', textAlign: 'center', lineHeight: 1.5, padding: '1.5rem 0.5rem' }}>
+                <p style={{ margin: '0 0 1rem' }}>{cameraError}</p>
+                <Button variant="primary" onClick={openWebcam}>Try again</Button>
+              </div>
+            ) : (
+              <>
+                <video
+                  ref={webcamVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 12, background: '#000' }}
+                />
+                <Button variant="primary" size="large" fullWidth onClick={captureWebcamImage} style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  <Camera size={18} /> Capture photo
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
