@@ -500,7 +500,6 @@ function PdfPreview({
         <button
           type="button"
           onClick={resetZoom}
-          aria-label="Reset zoom"
           style={{ ...zoomButtonStyle, width: 50, fontSize: 12 }}
         >
           {Math.round(zoom * 100)}%
@@ -620,7 +619,8 @@ export default function PreviewPage({
 
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const addImageInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const webcamVideoRef = useRef<HTMLVideoElement>(null);
+  const webcamStreamRef = useRef<MediaStream | null>(null);
   const a4Ref = useRef<HTMLDivElement>(null);
 
   const [a4Width, setA4Width] = useState(0);
@@ -628,8 +628,41 @@ export default function PreviewPage({
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string>('');
   const [isAddImagePickerOpen, setIsAddImagePickerOpen] = useState(false);
+  const [isWebcamOpen, setIsWebcamOpen] = useState(false);
   // ✅ ISKO ADD KAREIN:
 const isMounted = useIsMounted();
+
+  const closeWebcam = () => {
+    webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
+    webcamStreamRef.current = null;
+    setIsWebcamOpen(false);
+  };
+
+  useEffect(() => closeWebcam, []);
+
+  const openWebcam = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Webcam is not supported in this browser. Please use the media picker.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      webcamStreamRef.current = stream;
+      setIsWebcamOpen(true);
+      requestAnimationFrame(() => {
+        if (webcamVideoRef.current) {
+          webcamVideoRef.current.srcObject = stream;
+        }
+      });
+    } catch (webcamError) {
+      console.error('Webcam permission error:', webcamError);
+      setError('Camera permission nahi mili. Browser settings me camera allow karke dobara try karein.');
+    }
+  };
 
   const countPdfPages = async (targetFile: File): Promise<number> => {
     if (!targetFile || !(targetFile instanceof Blob)) {
@@ -917,9 +950,7 @@ const isMounted = useIsMounted();
     }
   };
 
-  const handleAddAnotherImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    event.target.value = '';
+  const addImageFile = async (selectedFile: File) => {
     if (!selectedFile) return;
 
     setError('');
@@ -953,6 +984,30 @@ const isMounted = useIsMounted();
       console.error('Image preparation error:', error);
       setError('Unable to prepare this image. Please choose another photo.');
     }
+  };
+
+  const handleAddAnotherImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    event.target.value = '';
+    if (selectedFile) await addImageFile(selectedFile);
+  };
+
+  const captureWebcamImage = async () => {
+    const video = webcamVideoRef.current;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
+
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 2400 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    if (!blob) return;
+    closeWebcam();
+    await addImageFile(new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' }));
   };
   const handleDelete = () => {
     if (items.length <= 1) {
@@ -1179,21 +1234,49 @@ const isMounted = useIsMounted();
       />
 
       <input
-        ref={cameraInputRef}
-        type="file"
-        className="visually-hidden"
-        accept="image/*"
-        capture="environment"
-        onChange={handleAddAnotherImage}
-      />
-
-      <input
         ref={addImageInputRef}
         type="file"
         className="visually-hidden"
         accept="image/*"
         onChange={handleAddAnotherImage}
       />
+      
+      {isWebcamOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="webcam-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 110,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            background: '#0f172a',
+          }}
+        >
+          <div style={{ width: 'min(100%, 520px)', display: 'grid', gap: '0.8rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff' }}>
+              <h2 id="webcam-title" style={{ margin: 0, fontSize: '1rem' }}>Camera</h2>
+              <button type="button" aria-label="Close camera" onClick={closeWebcam} style={{ border: 0, background: 'transparent', color: '#fff', cursor: 'pointer', padding: 4 }}>
+                <X size={21} />
+              </button>
+            </div>
+            <video
+              ref={webcamVideoRef}
+              autoPlay
+              muted
+              playsInline
+              style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 12, background: '#000' }}
+            />
+            <Button variant="primary" size="large" fullWidth onClick={captureWebcamImage} style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <Camera size={18} /> Capture photo
+            </Button>
+          </div>
+        </div>
+      )}
 
       {isAddImagePickerOpen && (
         <div
@@ -1233,7 +1316,7 @@ const isMounted = useIsMounted();
                 type="button"
                 onClick={() => {
                   setIsAddImagePickerOpen(false);
-                  cameraInputRef.current?.click();
+                  openWebcam();
                 }}
                 style={imageSourceButtonStyle}
               >
