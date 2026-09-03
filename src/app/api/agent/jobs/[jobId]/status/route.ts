@@ -80,15 +80,10 @@ export async function POST(
       job.paymentStatus = 'paid';
     }
     if (cleanupSucceeded) {
-      job.fileUrl = null;
-      job.layout = [];
-      job.fileName = 'Deleted for Privacy';
-      job.cloudinaryPublicId = null;
-      job.cloudinaryResourceType = null;
-      job.cloudinaryFormat = null;
-      job.cloudinaryVersion = null;
+      await PrintJob.deleteOne({ _id: job._id });
+    } else {
+      await job.save();
     }
-    await job.save();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

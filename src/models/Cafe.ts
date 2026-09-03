@@ -14,6 +14,7 @@ const CafeSchema = new Schema(
       color: { type: Number, required: true, min: 0, default: 10 },
     },
     agentSecretKey: { type: String, required: true }, // bcrypt hashed
+    backgroundImageUrl: { type: String, default: null },
     agentSecretHashVersion: { type: Number, default: 1 }, // For key rotation support
     isAgentActive: { type: Boolean, default: true },
     lastAgentSeen: { type: Date, default: null },

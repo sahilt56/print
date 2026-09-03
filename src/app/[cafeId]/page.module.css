@@ -25,17 +25,21 @@
   height: 100%;
   object-fit: cover;
   object-position: center;
-  image-rendering: -webkit-optimize-contrast;
+  image-rendering: auto; 
+  
+  /* 2. इमेज को स्मूथ और ब्लर-फ्री रखने के लिए यह जोड़ें */
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 /* Dark Dimming Overlay with Deep Blur */
-.overlay {
+/* .overlay {
   position: absolute;
   inset: 0;
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(2, 6, 23, 0.9));
   -webkit-backdrop-filter: blur(10px); 
    backdrop-filter: blur(10px);
-}
+} */
 
 /* Foreground Content Card */
 .contentWrapper {

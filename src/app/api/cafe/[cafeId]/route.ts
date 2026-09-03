@@ -48,6 +48,7 @@ export async function GET(
       qrCode: cafe.qrCode,
       loginId: cafe.loginId,
       logoUrl: (cafe as any).logoUrl || null, // Guaranteed Base64/URL payload
+      backgroundImageUrl: (cafe as any).backgroundImageUrl || null,
       pricing,
     });
   } catch (error: any) {

@@ -10,6 +10,7 @@ import { UploadCloud, Loader2, Camera, Images, X } from 'lucide-react';
 interface CafeDetails {
   name?: string;
   logoUrl?: string | null;
+  backgroundImageUrl?: string | null;
 }
 
 export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: string }> }) {
@@ -160,10 +161,10 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
 
   return (
     <div className={styles.heroContainer}>
-      {cafeData?.logoUrl && (
+      {cafeData?.backgroundImageUrl && (
         <div className={styles.bgImageWrapper}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={cafeData.logoUrl} alt="Hero Background" className={styles.bgImage} />
+          <img src={cafeData.backgroundImageUrl} alt="Cafe Background" className={styles.bgImage} />
           <div className={styles.overlay} />
         </div>
       )}

@@ -49,6 +49,7 @@ export default async function SettingsPage() {
     name?: string;
     pricingConfig?: string | { bw: number; color: number };
     logoUrl?: string;
+    backgroundImageUrl?: string;
     agentSecretKey?: string;
   } | null;
 
@@ -162,6 +163,7 @@ export default async function SettingsPage() {
           initialBw={pricingConfig.bw}
           initialColor={pricingConfig.color}
           initialLogoUrl={cafe.logoUrl || null}
+          initialBackgroundImageUrl={cafe.backgroundImageUrl || null}
         />
       </Card>
 

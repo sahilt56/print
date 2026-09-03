@@ -6,8 +6,6 @@ import { authOptions } from '../api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
 import Cafe from '@/models/Cafe';
 import PrintJob from '@/models/PrintJob';
-import { unlink } from 'fs/promises';
-import { join } from 'path';
 import { cleanupJobCloudinaryAssets } from '@/lib/cloudinary';
 
 // 🛡️ Helper: Secure Cafe Verification
@@ -26,29 +24,6 @@ async function getVerifiedCafeId(sessionUser: any) {
 
   if (!cafe) throw new Error('Cafe not found');
   return cafe._id;
-}
-
-// 🛡️ Helper: Fast Background Disk & Cloud Cleanup
-function triggerBackgroundCleanup(jobObject: any) {
-  // Cloudinary cleanup fire-and-forget (Doesn't block server response)
-  cleanupJobCloudinaryAssets(jobObject).catch((err) =>
-    console.warn('[Admin Cleanup] Cloudinary failed:', err)
-  );
-
-  // Local Disk Files Cleanup
-  if (jobObject.fileUrl) {
-    const filePath = join(process.cwd(), 'public', jobObject.fileUrl);
-    unlink(filePath).catch(() => {});
-  }
-
-  if (Array.isArray(jobObject.layout)) {
-    for (const item of jobObject.layout) {
-      if (item.fileUrl) {
-        const itemPath = join(process.cwd(), 'public', item.fileUrl);
-        unlink(itemPath).catch(() => {});
-      }
-    }
-  }
 }
 
 export async function markJobPaid(jobId: string) {
@@ -74,7 +49,7 @@ export async function cancelJob(jobId: string) {
   const cafeDbId = await getVerifiedCafeId(session.user);
 
   // 🚀 Fast Security-Filtered Update
-  const job = await PrintJob.findOneAndUpdate(
+	const job = await PrintJob.findOneAndUpdate(
     { _id: jobId, cafeId: cafeDbId },
     {
       $set: {
@@ -92,8 +67,10 @@ export async function cancelJob(jobId: string) {
   ).lean();
 
   if (job) {
-    // ⚡ Non-blocking background deletion
-    triggerBackgroundCleanup(job);
+		await cleanupJobCloudinaryAssets(job).catch((err) =>
+			console.warn('[Admin Cleanup] Cloudinary failed:', err)
+		);
+		await PrintJob.deleteOne({ _id: job._id });
   }
 
   revalidatePath('/admin');

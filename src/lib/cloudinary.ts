@@ -89,6 +89,36 @@ export async function uploadDocument(
   });
 }
 
+export async function uploadBackgroundImage(
+  fileBuffer: Buffer,
+  folder: string = 'cafe_backgrounds'
+): Promise<UploadResult & { secure_url: string }> {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        type: 'upload',
+        resource_type: 'image',
+        timeout: 120000,
+      },
+      (error, result) => {
+        if (error || !result?.secure_url) {
+          return reject(error || new Error('Background image upload failed'));
+        }
+        resolve({
+          public_id: result.public_id,
+          resource_type: result.resource_type,
+          format: result.format,
+          version: result.version,
+          bytes: result.bytes,
+          secure_url: result.secure_url,
+        });
+      }
+    );
+    uploadStream.end(fileBuffer);
+  });
+}
+
 /**
  * Delete a document from Cloudinary
  */

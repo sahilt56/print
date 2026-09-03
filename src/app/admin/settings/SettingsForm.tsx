@@ -9,12 +9,15 @@ interface SettingsFormProps {
   initialBw: number;
   initialColor: number;
   initialLogoUrl?: string | null;
+  initialBackgroundImageUrl?: string | null;
 }
 
-export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: SettingsFormProps) {
+export function SettingsForm({ initialBw, initialColor, initialLogoUrl, initialBackgroundImageUrl }: SettingsFormProps) {
   const [bwPrice, setBwPrice] = useState(initialBw.toString());
   const [colorPrice, setColorPrice] = useState(initialColor.toString());
   const [logoUrl, setLogoUrl] = useState<string>(initialLogoUrl || '');
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState(initialBackgroundImageUrl || '');
+  const [backgroundImageFile, setBackgroundImageFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -45,6 +48,21 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
     }
   };
 
+  const handleBackgroundImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file for the background.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Background image must be smaller than 10MB.');
+      return;
+    }
+    setBackgroundImageFile(file);
+    setBackgroundImageUrl(URL.createObjectURL(file));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -52,14 +70,26 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
     setError('');
 
     try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let body: FormData | string;
+      if (backgroundImageFile) {
+        const formData = new FormData();
+        body = formData;
+        formData.append('bw', bwPrice);
+        formData.append('color', colorPrice);
+        formData.append('logoUrl', logoUrl);
+        formData.append('backgroundImage', backgroundImageFile);
+      } else {
+        body = JSON.stringify({
           bw: Number(bwPrice),
           color: Number(colorPrice),
-          logoUrl: logoUrl,
-        }),
+          logoUrl,
+        });
+      }
+
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        ...(backgroundImageFile ? {} : { headers: { 'Content-Type': 'application/json' } }),
+        body,
       });
 
       if (!res.ok) {
@@ -82,7 +112,7 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
     <form onSubmit={handleSubmit} className={styles.form}>
       <div className={styles.inputGroup}>
         <label htmlFor="logoUpload" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <ImageIcon size={16} /> Cafe Banner / Logo Image
+          <ImageIcon size={16} /> Cafe Logo (MongoDB)
         </label>
         {logoUrl && (
           <div className={styles.logoPreviewWrapper}>
@@ -97,7 +127,27 @@ export function SettingsForm({ initialBw, initialColor, initialLogoUrl }: Settin
           onChange={handleLogoUpload}
           className={styles.input}
         />
-        <p className={styles.fieldNote}>Upload a PNG/JPG logo to show on your customer landing page.</p>
+        <p className={styles.fieldNote}>Logo MongoDB me save hoga aur customer page par alag logo ke roop me dikhega.</p>
+      </div>
+
+      <div className={styles.inputGroup}>
+        <label htmlFor="backgroundImageUpload" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <ImageIcon size={16} /> Background Banner (Cloudinary)
+        </label>
+        {backgroundImageUrl && (
+          <div className={styles.logoPreviewWrapper}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={backgroundImageUrl} alt="Background preview" className={styles.logoPreview} />
+          </div>
+        )}
+        <input
+          id="backgroundImageUpload"
+          type="file"
+          accept="image/png, image/jpeg, image/webp"
+          onChange={handleBackgroundImageUpload}
+          className={styles.input}
+        />
+        <p className={styles.fieldNote}>Banner Cloudinary me save hoga aur customer page ka background banega.</p>
       </div>
 
       <div className={styles.inputGroup}>

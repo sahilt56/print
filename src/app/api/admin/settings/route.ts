@@ -6,6 +6,7 @@ import dbConnect from '@/lib/dbConnect';
 import Cafe from '@/models/Cafe';
 import { apiError, apiSuccess, internalError, unauthorized, isRequiredNumber } from '@/lib/api-utils';
 import { getAuthenticatedCafeId } from '@/lib/security';
+import { uploadBackgroundImage } from '@/lib/cloudinary';
 
 /**
  * Admin Settings Update Route
@@ -30,9 +31,27 @@ export async function POST(request: NextRequest) {
       return unauthorized('No cafe associated with session');
     }
 
-    // Parse request body
-    const body = await request.json();
-    const { bw, color, logoUrl } = body;
+    const contentType = request.headers.get('content-type') || '';
+    const isMultipart = contentType.includes('multipart/form-data');
+    let bw: unknown;
+    let color: unknown;
+    let logoUrl: unknown;
+    let backgroundImage: File | null = null;
+
+    if (isMultipart) {
+      const formData = await request.formData();
+      bw = formData.get('bw');
+      color = formData.get('color');
+      logoUrl = formData.get('logoUrl');
+      backgroundImage = formData.get('backgroundImage') instanceof File
+        ? formData.get('backgroundImage') as File
+        : null;
+      bw = bw === null ? undefined : Number(bw);
+      color = color === null ? undefined : Number(color);
+    } else {
+      const body = await request.json();
+      ({ bw, color, logoUrl } = body);
+    }
 
     // Validate pricing fields
     const MAX_PRICE = 1000;
@@ -58,6 +77,13 @@ export async function POST(request: NextRequest) {
       if (logoUrl && !logoUrl.startsWith('data:') && !logoUrl.startsWith('https://')) {
         return apiError('Logo URL must be a data URL or HTTPS', 400);
       }
+    }
+
+    if (backgroundImage && backgroundImage.size > 10 * 1024 * 1024) {
+      return apiError('Background image must be smaller than 10MB', 400);
+    }
+    if (backgroundImage && !backgroundImage.type.startsWith('image/')) {
+      return apiError('Background image must be an image file', 400);
     }
 
     // Find cafe using session cafe ID. Only include _id when it is a valid ObjectId,
@@ -96,11 +122,19 @@ export async function POST(request: NextRequest) {
       cafe.logoUrl = logoUrl;
     }
 
+    if (backgroundImage) {
+      const uploadedBackground = await uploadBackgroundImage(
+        Buffer.from(await backgroundImage.arrayBuffer())
+      );
+      cafe.backgroundImageUrl = uploadedBackground.secure_url;
+    }
+
     await cafe.save();
 
     console.info('[Admin Settings] Updated', {
       cafeId: cafe.qrCode,
       pricing: cafe.pricingConfig,
+      backgroundImageUrl: cafe.backgroundImageUrl,
     });
 
     return apiSuccess({
