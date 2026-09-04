@@ -116,8 +116,10 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      await processSelectedFile(selectedFile);
+    }
     e.target.value = '';
-    if (selectedFile) await processSelectedFile(selectedFile);
   };
 
   const openWebcam = async () => {
@@ -220,7 +222,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
               ref={imageInputRef}
               type="file"
               className="visually-hidden"
-              accept="image/*"
+              accept="image/png, image/jpeg, image/jpg"
               onChange={handleFileChange}
               disabled={isProcessing}
             />

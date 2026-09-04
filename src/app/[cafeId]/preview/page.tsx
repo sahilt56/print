@@ -1264,7 +1264,7 @@ const isMounted = useIsMounted();
         ref={replaceImageInputRef}
         type="file"
         className="visually-hidden"
-        accept="image/*"
+        accept="image/png, image/jpeg, image/jpg"
         onChange={handleReplaceFile}
       />
 
@@ -1280,7 +1280,7 @@ const isMounted = useIsMounted();
         ref={addImageInputRef}
         type="file"
         className="visually-hidden"
-        accept="image/*"
+        accept="image/png, image/jpeg, image/jpg"
         onChange={handleAddAnotherImage}
       />
       
