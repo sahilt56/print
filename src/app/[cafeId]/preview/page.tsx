@@ -32,6 +32,7 @@ import {
   ArrowRight,
   Camera,
   Images,
+  FileText,
   X,
 } from 'lucide-react';
 
@@ -619,7 +620,8 @@ export default function PreviewPage({
 
   const { cafeId } = React.use(params);
 
-  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const replaceImageInputRef = useRef<HTMLInputElement>(null);
+  const replacePdfInputRef = useRef<HTMLInputElement>(null);
   const addImageInputRef = useRef<HTMLInputElement>(null);
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
@@ -630,8 +632,10 @@ export default function PreviewPage({
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string>('');
   const [isAddImagePickerOpen, setIsAddImagePickerOpen] = useState(false);
+  const [isReplaceFilePickerOpen, setIsReplaceFilePickerOpen] = useState(false);
   const [isWebcamOpen, setIsWebcamOpen] = useState(false);
   const [cameraError, setCameraError] = useState('');
+  const [cameraMode, setCameraMode] = useState<'add' | 'replace'>('add');
   // ✅ ISKO ADD KAREIN:
 const isMounted = useIsMounted();
   const showCamera = isMounted && isMobileOrTabletDevice();
@@ -897,13 +901,11 @@ const isMounted = useIsMounted();
     image.src = selectedItem.url;
   };
 
-  const handleReplaceFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  const nextFile = event.target.files?.[0];
+  const replaceSelectedFile = async (nextFile: File) => {
   if (nextFile && selectedItem) {
     setError('');
   if (nextFile.size && nextFile.size > 12 * 1024 * 1024) {
       setError('❌ File size must be less than 12 MB. Please select a smaller file.');
-      event.target.value = '';
       return;
     }
 
@@ -938,8 +940,13 @@ const isMounted = useIsMounted();
       )
     );
   }
-  event.target.value = '';
 };
+
+  const handleReplaceFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextFile = event.target.files?.[0];
+    event.target.value = '';
+    if (nextFile) await replaceSelectedFile(nextFile);
+  };
 
   const prepareImageForUpload = async (imageFile: File) => {
     if (imageFile.size <= 8 * 1024 * 1024) return imageFile;
@@ -1025,7 +1032,12 @@ const isMounted = useIsMounted();
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
     if (!blob) return;
     closeWebcam();
-    await addImageFile(new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+    const cameraFile = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    if (cameraMode === 'replace') {
+      await replaceSelectedFile(cameraFile);
+    } else {
+      await addImageFile(cameraFile);
+    }
   };
   const handleDelete = () => {
     if (items.length <= 1) {
@@ -1212,7 +1224,7 @@ const isMounted = useIsMounted();
 
         <Button
           variant="secondary"
-          onClick={() => replaceInputRef.current?.click()}
+          onClick={() => setIsReplaceFilePickerOpen(true)}
           disabled={isUploading}
           style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}
         >
@@ -1222,7 +1234,10 @@ const isMounted = useIsMounted();
         {!selectedItem?.isPdf && (
           <Button
             variant="secondary"
-            onClick={() => setIsAddImagePickerOpen(true)}
+            onClick={() => {
+              setCameraMode('add');
+              setIsAddImagePickerOpen(true);
+            }}
             disabled={isUploading}
             style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}
           >
@@ -1246,10 +1261,18 @@ const isMounted = useIsMounted();
       </div>
               
       <input
-        ref={replaceInputRef}
+        ref={replaceImageInputRef}
         type="file"
         className="visually-hidden"
-        accept=".pdf,.png,.jpg,.jpeg"
+        accept="image/*"
+        onChange={handleReplaceFile}
+      />
+
+      <input
+        ref={replacePdfInputRef}
+        type="file"
+        className="visually-hidden"
+        accept="application/pdf,.pdf"
         onChange={handleReplaceFile}
       />
 
@@ -1307,11 +1330,11 @@ const isMounted = useIsMounted();
         </div>
       )}
 
-      {isAddImagePickerOpen && (
+      {(isAddImagePickerOpen || isReplaceFilePickerOpen) && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-labelledby="add-image-picker-title"
+          aria-labelledby="file-picker-title"
           style={{
             position: 'fixed',
             inset: 0,
@@ -1319,10 +1342,13 @@ const isMounted = useIsMounted();
             display: 'flex',
             alignItems: 'flex-end',
             justifyContent: 'center',
-            padding: '1rem',
+            padding: '1rem 1rem 10rem',
             background: 'rgba(15, 23, 42, 0.45)',
           }}
-          onClick={() => setIsAddImagePickerOpen(false)}
+          onClick={() => {
+            setIsAddImagePickerOpen(false);
+            setIsReplaceFilePickerOpen(false);
+          }}
         >
           <div
             style={{
@@ -1335,34 +1361,53 @@ const isMounted = useIsMounted();
             onClick={(event) => event.stopPropagation()}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
-              <h2 id="add-image-picker-title" style={{ margin: 0, fontSize: '1rem' }}>Add image from</h2>
-              <button type="button" aria-label="Close image picker" onClick={() => setIsAddImagePickerOpen(false)} style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: 4 }}>
+              <h2 id="file-picker-title" style={{ margin: 0, fontSize: '1rem' }}>{isReplaceFilePickerOpen ? 'Replace file from' : 'Add image from'}</h2>
+              <button type="button" aria-label="Close file picker" onClick={() => { setIsAddImagePickerOpen(false); setIsReplaceFilePickerOpen(false); }} style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: 4 }}>
                 <X size={19} />
               </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: showCamera ? '1fr 1fr' : '1fr', gap: '0.65rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isReplaceFilePickerOpen ? (showCamera ? '1fr 1fr 1fr' : '1fr 1fr') : (showCamera ? '1fr 1fr' : '1fr'), gap: '0.65rem' }}>
               {showCamera && <button
                 type="button"
                 onClick={() => {
                   setIsAddImagePickerOpen(false);
+                  setIsReplaceFilePickerOpen(false);
+                  setCameraMode(isReplaceFilePickerOpen ? 'replace' : 'add');
                   openWebcam();
                 }}
                 style={imageSourceButtonStyle}
               >
                 <Camera size={22} />
-                Camera
+                Take a photo
               </button>}
               <button
                 type="button"
                 onClick={() => {
                   setIsAddImagePickerOpen(false);
-                  addImageInputRef.current?.click();
+                  setIsReplaceFilePickerOpen(false);
+                  if (isReplaceFilePickerOpen) {
+                    replaceImageInputRef.current?.click();
+                  } else {
+                    addImageInputRef.current?.click();
+                  }
                 }}
                 style={imageSourceButtonStyle}
               >
                 <Images size={22} />
-                Media picker
+                Image
               </button>
+              {isReplaceFilePickerOpen && <button
+                type="button"
+                onClick={() => {
+                  setIsAddImagePickerOpen(false);
+                  setIsReplaceFilePickerOpen(false);
+                  replacePdfInputRef.current?.click();
+                }}
+                style={imageSourceButtonStyle}
+              >
+                <FileText size={22} />
+                Document
+              </button>}
             </div>
           </div>
         </div>

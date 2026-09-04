@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
 import { isMobileOrTabletDevice } from '@/lib/device';
 import styles from './page.module.css';
-import { UploadCloud, Loader2, Camera, Images, X } from 'lucide-react';
+import { UploadCloud, Loader2, Camera, Images, FileText, X } from 'lucide-react';
 
 interface CafeDetails {
   name?: string;
@@ -37,7 +37,8 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   // 🛡️ Strict 0ms Lock Guard (Double click crash block)
   const isProcessingRef = useRef<boolean>(false);
 
-  const docInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
 
@@ -216,10 +217,18 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
           {/* Single Upload Document Button */}
           <div className={styles.uploadContainer}>
             <input
-              ref={docInputRef}
+              ref={imageInputRef}
               type="file"
               className="visually-hidden"
-              accept=".pdf,image/*"
+              accept="image/*"
+              onChange={handleFileChange}
+              disabled={isProcessing}
+            />
+            <input
+              ref={pdfInputRef}
+              type="file"
+              className="visually-hidden"
+              accept="application/pdf,.pdf"
               onChange={handleFileChange}
               disabled={isProcessing}
             />
@@ -256,9 +265,10 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
                 <h2 id="upload-source-title" style={{ margin: 0, fontSize: '1rem' }}>Upload document from</h2>
                 <button type="button" aria-label="Close upload picker" onClick={() => setIsUploadPickerOpen(false)} style={closeButtonStyle}><X size={19} /></button>
               </div>
-              <div style={{ ...sourceGridStyle, gridTemplateColumns: showCamera ? '1fr 1fr' : '1fr' }}>
-                {showCamera && <button type="button" onClick={() => { setIsUploadPickerOpen(false); openWebcam(); }} style={sourceButtonStyle}><Camera size={22} />Camera</button>}
-                <button type="button" onClick={() => { setIsUploadPickerOpen(false); docInputRef.current?.click(); }} style={sourceButtonStyle}><Images size={22} />Media picker</button>
+              <div style={{ ...sourceGridStyle, gridTemplateColumns: showCamera ? '1fr 1fr 1fr' : '1fr 1fr' }}>
+                {showCamera && <button type="button" onClick={() => { setIsUploadPickerOpen(false); openWebcam(); }} style={sourceButtonStyle}><Camera size={22} />Take a photo</button>}
+                <button type="button" onClick={() => { setIsUploadPickerOpen(false); imageInputRef.current?.click(); }} style={sourceButtonStyle}><Images size={22} />Image</button>
+                <button type="button" onClick={() => { setIsUploadPickerOpen(false); pdfInputRef.current?.click(); }} style={sourceButtonStyle}><FileText size={22} />Document</button>
               </div>
             </div>
           </div>
@@ -290,7 +300,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
 }
 
   const modalBackdropStyle: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '1rem', background: 'rgba(15, 23, 42, 0.45)' };
-  const sourceDialogStyle: React.CSSProperties = { width: 'min(100%, 380px)', padding: '1rem', borderRadius: 14, background: 'var(--background, #fff)', boxShadow: '0 20px 40px rgba(15, 23, 42, 0.22)' };
+  const sourceDialogStyle: React.CSSProperties = { width: 'min(100%, 380px)', padding: '1rem', marginBottom: '5rem', borderRadius: 14, background: 'var(--background, #fff)', boxShadow: '0 20px 40px rgba(15, 23, 42, 0.22)' };
   const dialogHeaderStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' };
   const closeButtonStyle: React.CSSProperties = { border: 0, background: 'transparent', cursor: 'pointer', padding: 4 };
   const sourceGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' };
