@@ -4,6 +4,7 @@ const PrintJobSchema = new Schema(
   {
     jobNumber: { type: String, required: true, unique: true },
     cafeId: { type: Schema.Types.ObjectId, ref: 'Cafe', required: true, index: true },
+    customerName: { type: String, required: true, trim: true, maxlength: 40 },
     fileName: { type: String, default: 'Deleted for Privacy' },
     fileType: { type: String, required: true },
     fileUrl: { type: String, default: null },

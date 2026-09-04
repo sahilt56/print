@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { usePrintJob } from '@/context/PrintJobContext';
+import { isMobileOrTabletDevice } from '@/lib/device';
 import styles from './page.module.css';
 import { UploadCloud, Loader2, Camera, Images, X } from 'lucide-react';
 
@@ -11,6 +12,11 @@ interface CafeDetails {
   name?: string;
   logoUrl?: string | null;
   backgroundImageUrl?: string | null;
+}
+
+const emptySubscribe = () => () => {};
+function useIsMounted() {
+  return useSyncExternalStore(emptySubscribe, () => true, () => false);
 }
 
 export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: string }> }) {
@@ -25,6 +31,8 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   const [isUploadPickerOpen, setIsUploadPickerOpen] = useState(false);
   const [isWebcamOpen, setIsWebcamOpen] = useState(false);
   const [cameraError, setCameraError] = useState('');
+  const isMounted = useIsMounted();
+  const showCamera = isMounted && isMobileOrTabletDevice();
 
   // 🛡️ Strict 0ms Lock Guard (Double click crash block)
   const isProcessingRef = useRef<boolean>(false);
@@ -112,6 +120,7 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
   };
 
   const openWebcam = async () => {
+    if (!isMobileOrTabletDevice()) return;
     setCameraError('');
     if (!window.isSecureContext) {
       setCameraError('Camera permission ke liye website HTTPS par open honi chahiye.');
@@ -247,8 +256,8 @@ export default function CafeLandingPage({ params }: { params: Promise<{ cafeId: 
                 <h2 id="upload-source-title" style={{ margin: 0, fontSize: '1rem' }}>Upload document from</h2>
                 <button type="button" aria-label="Close upload picker" onClick={() => setIsUploadPickerOpen(false)} style={closeButtonStyle}><X size={19} /></button>
               </div>
-              <div style={sourceGridStyle}>
-                <button type="button" onClick={() => { setIsUploadPickerOpen(false); openWebcam(); }} style={sourceButtonStyle}><Camera size={22} />Camera</button>
+              <div style={{ ...sourceGridStyle, gridTemplateColumns: showCamera ? '1fr 1fr' : '1fr' }}>
+                {showCamera && <button type="button" onClick={() => { setIsUploadPickerOpen(false); openWebcam(); }} style={sourceButtonStyle}><Camera size={22} />Camera</button>}
                 <button type="button" onClick={() => { setIsUploadPickerOpen(false); docInputRef.current?.click(); }} style={sourceButtonStyle}><Images size={22} />Media picker</button>
               </div>
             </div>

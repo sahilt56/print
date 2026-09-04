@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 
 import { Layout } from '@/components/ui/Layout';
 import { Button } from '@/components/ui/Button';
+import { isMobileOrTabletDevice } from '@/lib/device';
 import { Card } from '@/components/ui/Card';
 import {
   usePrintJob,
@@ -633,6 +634,7 @@ export default function PreviewPage({
   const [cameraError, setCameraError] = useState('');
   // ✅ ISKO ADD KAREIN:
 const isMounted = useIsMounted();
+  const showCamera = isMounted && isMobileOrTabletDevice();
 
   const closeWebcam = () => {
     webcamStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -644,6 +646,7 @@ const isMounted = useIsMounted();
   useEffect(() => closeWebcam, []);
 
   const openWebcam = async () => {
+    if (!isMobileOrTabletDevice()) return;
     setCameraError('');
     if (!window.isSecureContext) {
       setCameraError('Camera permission ke liye website HTTPS par open honi chahiye.');
@@ -1337,8 +1340,8 @@ const isMounted = useIsMounted();
                 <X size={19} />
               </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
-              <button
+            <div style={{ display: 'grid', gridTemplateColumns: showCamera ? '1fr 1fr' : '1fr', gap: '0.65rem' }}>
+              {showCamera && <button
                 type="button"
                 onClick={() => {
                   setIsAddImagePickerOpen(false);
@@ -1348,7 +1351,7 @@ const isMounted = useIsMounted();
               >
                 <Camera size={22} />
                 Camera
-              </button>
+              </button>}
               <button
                 type="button"
                 onClick={() => {

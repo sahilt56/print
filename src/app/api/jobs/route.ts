@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
        // 1. बॉडी से सभी ज़रूरी वेरिएबल्स को वापस सही ढंग से निकाला गया
     const {
       cafeId,
+      customerName,
       fileUrl,
       fileName,
       fileType,
@@ -89,6 +90,10 @@ export async function POST(request: NextRequest) {
     // 1. Validate required fields
     if (!isRequiredString(cafeId)) {
       return apiError('Cafe ID is required', 400);
+    }
+
+    if (!isRequiredString(customerName) || customerName.trim().length > 40) {
+      return apiError('Customer name is required and must be 40 characters or fewer', 400);
     }
 
     // 2. Validate optional fields
@@ -265,6 +270,7 @@ export async function POST(request: NextRequest) {
       newJob = await PrintJob.create({
         jobNumber,
         cafeId: cafe._id,
+        customerName: customerName.trim(),
         fileUrl: primaryFileUrl,
         fileName: fileName || 'Print Document',
         fileType: fileType || 'image/png',

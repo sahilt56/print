@@ -17,6 +17,7 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [prices, setPrices] = useState({ bw: 2, color: 10 });
+  const [customerName, setCustomerName] = useState('');
 
   // Safe pricing fetch with fallback check
   useEffect(() => {
@@ -109,6 +110,7 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
     const formData = new FormData();
 
     formData.append('cafeId', cafeId);
+    formData.append('customerName', customerName.trim());
     
     // 💡 फिक्स 1: 'items[0]' के बजाय सीधे 'file' ऑब्जेक्ट का इस्तेमाल करें जो असली PDF है
     // इससे बैकएंड और क्लाउडिनरी को पता चलेगा कि यह एक असली PDF है, इमेज नहीं!
@@ -157,6 +159,16 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
 
   const handleCashSubmit = async () => {
     if (isSubmitting) return;
+
+    const trimmedName = customerName.trim();
+    if (!trimmedName) {
+      setError('Please enter your name before submitting.');
+      return;
+    }
+    if (trimmedName.length > 40) {
+      setError('Name must be 40 characters or fewer.');
+      return;
+    }
 
     setIsSubmitting(true);
     setError('');
@@ -264,6 +276,30 @@ export default function OptionsPage({ params }: { params: Promise<{ cafeId: stri
           </p>
           </div>
         </>}
+
+        <div className={styles.optionGroup}>
+          <label className={styles.optionTitle} htmlFor="customer-name">Your Name</label>
+          <input
+            id="customer-name"
+            type="text"
+            value={customerName}
+            onChange={(event) => setCustomerName(event.target.value)}
+            placeholder="Enter your name"
+            maxLength={40}
+            autoComplete="name"
+            required
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              backgroundColor: 'var(--background)',
+              color: 'var(--foreground)',
+              fontSize: '1rem',
+              outline: 'none',
+            }}
+          />
+        </div>
 
         <div className={styles.optionGroup}>
           <h3 className={styles.optionTitle}>Color</h3>

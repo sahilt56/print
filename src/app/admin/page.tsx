@@ -49,6 +49,7 @@ const PAYMENT_LABELS: Record<string, string> = {
 interface PrintJobData {
   id: string;
   jobNumber: string;
+  customerName: string;
   fileName: string;
   fileUrl: string;
   pageCount: number;
@@ -115,6 +116,7 @@ export default async function AdminDashboard() {
   const jobs: PrintJobData[] = rawJobs.map((j: Record<string, unknown>) => ({
     id: String(j._id),
     jobNumber: (j.jobNumber as string) || 'PRINT-REQ',
+    customerName: (j.customerName as string) || 'Customer name unavailable',
     fileName: (j.fileName as string) || 'Document',
     fileUrl: (j.fileUrl as string) || '',
     pageCount: Number(j.totalPages || j.pageCount || 1),
@@ -256,7 +258,10 @@ function JobCard({ job }: { job: PrintJobData }) {
   return (
     <div className={styles.jobContent}>
       <div className={styles.jobHeader}>
-        <span className={styles.jobNumber}>{job.jobNumber}</span>
+        <div>
+          <span className={styles.jobNumber}>{job.jobNumber}</span>
+          <div style={{ fontWeight: 700, marginTop: '0.35rem' }}>{job.customerName}</div>
+        </div>
         <div className={styles.badges}>
           <span className={styles.statusBadge} data-status={job.printStatus}>
             {STATUS_LABELS[job.printStatus] ?? job.printStatus}
