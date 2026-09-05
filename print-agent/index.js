@@ -107,6 +107,7 @@ const processJob = async (job) => {
       console.log(`  Creating layout for ${layoutItems.length} item(s)...`);
 
       const pdfDoc = await PDFDocument.create();
+      let imagePage = null;
 
       for (const item of layoutItems) {
         const itemUrl = getFullUrl(item.fileUrl || job.downloadUrl || job.fileUrl);
@@ -122,7 +123,9 @@ const processJob = async (job) => {
           const copiedPages = await pdfDoc.copyPages(srcPdfDoc, srcPdfDoc.getPageIndices());
           copiedPages.forEach((page) => pdfDoc.addPage(page));
         } else {
-          const page = pdfDoc.addPage([595.28, 841.89]);
+          // All image items belong to the same A4 sheet.
+          const page = imagePage || pdfDoc.addPage([595.28, 841.89]);
+          imagePage = page;
           const { width: PAGE_WIDTH, height: PAGE_HEIGHT } = page.getSize();
 
           let embeddedImage;

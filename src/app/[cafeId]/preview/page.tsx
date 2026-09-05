@@ -635,7 +635,7 @@ export default function PreviewPage({
   const [isReplaceFilePickerOpen, setIsReplaceFilePickerOpen] = useState(false);
   const [isWebcamOpen, setIsWebcamOpen] = useState(false);
   const [cameraError, setCameraError] = useState('');
-  const [cameraMode, setCameraMode] = useState<'add' | 'replace'>('add');
+  const cameraModeRef = useRef<'add' | 'replace'>('add');
   // ✅ ISKO ADD KAREIN:
 const isMounted = useIsMounted();
   const showCamera = isMounted && isMobileOrTabletDevice();
@@ -1033,7 +1033,7 @@ const isMounted = useIsMounted();
     if (!blob) return;
     closeWebcam();
     const cameraFile = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    if (cameraMode === 'replace') {
+    if (cameraModeRef.current === 'replace') {
       await replaceSelectedFile(cameraFile);
     } else {
       await addImageFile(cameraFile);
@@ -1235,7 +1235,7 @@ const isMounted = useIsMounted();
           <Button
             variant="secondary"
             onClick={() => {
-              setCameraMode('add');
+              cameraModeRef.current = 'add';
               setIsAddImagePickerOpen(true);
             }}
             disabled={isUploading}
@@ -1372,7 +1372,8 @@ const isMounted = useIsMounted();
                 onClick={() => {
                   setIsAddImagePickerOpen(false);
                   setIsReplaceFilePickerOpen(false);
-                  setCameraMode(isReplaceFilePickerOpen ? 'replace' : 'add');
+                  const nextCameraMode = isReplaceFilePickerOpen ? 'replace' : 'add';
+                  cameraModeRef.current = nextCameraMode;
                   openWebcam();
                 }}
                 style={imageSourceButtonStyle}
